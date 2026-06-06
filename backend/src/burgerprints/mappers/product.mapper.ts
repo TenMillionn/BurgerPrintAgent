@@ -57,7 +57,7 @@ export class ProductMapper {
       dropshipPriceMax: item.dropshipPriceMax,
       productionTime,
       countColors: parseInt(item.countColors, 10) || 0,
-      isNew: item.isNew === '1',
+      isNewProduct: item.isNew === '1',
       createdDate,
       sizes: (item.sizes || []).map((s) => ({
         id: s.id,
@@ -80,12 +80,26 @@ export class ProductMapper {
     const shippingTimeUs = ProductMapper.parseRange(data.shipping?.shippingTimeUs || data.shippingTimeUS);
     const shippingTimeWW = ProductMapper.parseRange(data.shipping?.shippingTimeWw || data.shippingTimeWW);
 
+    const parsedHtml = ProductMapper.parseHtmlDesc(data.htmlDesc || '');
+
     return {
       currency: data.currency,
       designGroup: data.designGroup,
       region,
+      location: parsedHtml.location,
+      htmlDesc: data.htmlDesc,
+      desc: data.desc,
+      material: parsedHtml.material,
       shippingTimeUs,
       shippingTimeWW,
+      sizeChart: typeof data.sizeChart === 'string' ? data.sizeChart : JSON.stringify(data.sizeChart || {}),
+      decorations: data.decorations || [],
+      relatedProducts: (data.baseInterested || []).map((b: any) => ({
+        shortCode: b.shortCode,
+        name: b.name,
+      })),
+      resolutionRequire: data.resolutionRequire || '',
+      printable: data.printable || [],
       detailFetched: true,
       syncedAt: new Date(),
     };
@@ -132,6 +146,42 @@ export class ProductMapper {
       return 'home';
     }
     return 'accessories'; // default fallback
+  }
+
+  static parseHtmlDesc(html: string): {
+    material: string | null;
+    printing: string | null;
+    location: string | null;
+    processingTime: string | null;
+  } {
+    const text = html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const processingTime =
+      /Processing Time[:\s]*([^<.]+?)(?:\.|<|Shipping|$)/i
+        .exec(text)?.[1]
+        ?.trim()
+        ?.slice(0, 50) ?? null;
+    const printing =
+      /(?:Printing tech\w*|Technique)[:\s]*([^.<]+?)(?:\.|Manufactured|Location|$)/i.exec(
+        text,
+      )?.[1] ??
+      (/(DTG|DTF|Dye-sublimation|Sublimation)/i.exec(text)?.[0] || null);
+    const location =
+      /Manufactured in ([A-Za-z ]+?)(?:\.|,|<|$)/i.exec(text)?.[1]?.trim() ??
+      /Location[:\s]*([A-Za-z ]+?)(?:\.|,|<|$)/i.exec(text)?.[1]?.trim() ??
+      null;
+    const material =
+      /(\d+%[^.]*?(?:cotton|polyester|spandex)[^.]*)/i
+        .exec(text)?.[1]
+        ?.trim() ?? null;
+    return {
+      material: material ? material.slice(0, 80) : null,
+      printing: printing ? printing.trim().slice(0, 40) : null,
+      location,
+      processingTime,
+    };
   }
 
   static classifyCatalogObject(

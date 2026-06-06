@@ -5,6 +5,7 @@ import { MemoryService } from '../memory/memory.service';
 import { AgentLogger } from '../logging/agent-logger.service';
 import { AgentRuntime } from './agent-runtime.port';
 import { AgentChunk, AgentRunInput } from './agent.types';
+import { BurgerPrintToolService } from 'src/burgerprints/burgerprints-tool.service';
 
 /**
  * Adapter bọc `@earendil-works/pi-agent-core` (bộ "Pi" toolkit của earendil-works,
@@ -37,6 +38,8 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     private readonly burgerprints: BurgerPrintsService,
     private readonly memory: MemoryService,
     private readonly agentLog: AgentLogger,
+
+    private readonly burgerPrintToolService: BurgerPrintToolService,
   ) {}
 
   async *run(input: AgentRunInput): AsyncIterable<AgentChunk> {
@@ -352,7 +355,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         },
         [],
         (p) =>
-          this.burgerprints.searchProducts({
+          this.burgerPrintToolService.searchProducts({
             category: p.category,
             market: p.market,
             max_base_cost: p.max_base_cost,
@@ -370,7 +373,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           },
         },
         ['short_code'],
-        (p) => this.burgerprints.compareFactories(p.short_code),
+        (p) => this.burgerPrintToolService.compareFactories(p.short_code),
       ),
       tool(
         'get_product_variants',
@@ -386,7 +389,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         },
         ['short_code'],
         (p) =>
-          this.burgerprints.getProductVariants(p.short_code, {
+          this.burgerPrintToolService.getProductVariants(p.short_code, {
             color: p.color,
             size: p.size,
             factory: p.factory,
@@ -434,7 +437,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         },
         ['shipping', 'items'],
         (p) =>
-          this.burgerprints.createOrder({
+          this.burgerPrintToolService.createOrder({
             shipping: p.shipping,
             items: p.items,
             sandbox: p.sandbox,
@@ -476,7 +479,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         },
         ['short_code', 'partner_id'],
         (p) =>
-          this.burgerprints.getShipping(p.short_code, p.partner_id, p.country),
+          this.burgerPrintToolService.getShipping(p.short_code, p.partner_id, p.country),
       ),
       tool(
         'get_size_chart',
@@ -490,7 +493,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           },
         },
         ['short_code'],
-        (p) => this.burgerprints.getSizeChart(p.short_code),
+        (p) => this.burgerPrintToolService.getSizeChart(p.short_code),
       ),
       tool(
         'get_product_detail',
@@ -506,7 +509,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           },
         },
         ['short_code'],
-        (p) => this.burgerprints.getProductDetail_card(p.short_code),
+        (p) => this.burgerPrintToolService.getProductDetail_card(p.short_code),
       ),
       tool(
         'get_product_colors',
@@ -518,7 +521,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           },
         },
         ['short_code'],
-        (p) => this.burgerprints.getProductColors(p.short_code),
+        (p) => this.burgerPrintToolService.getProductColors(p.short_code),
       ),
       tool(
         'get_decorations',
@@ -531,7 +534,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           },
         },
         ['short_code'],
-        (p) => this.burgerprints.getDecorations(p.short_code),
+        (p) => this.burgerPrintToolService.getDecorations(p.short_code),
       ),
       tool(
         'get_related_products',
@@ -543,7 +546,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           },
         },
         ['short_code'],
-        (p) => this.burgerprints.getRelatedProducts(p.short_code),
+        (p) => this.burgerPrintToolService.getRelatedProducts(p.short_code),
       ),
       tool(
         'calculate_margin',

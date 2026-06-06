@@ -12,11 +12,13 @@ import { ShippingRate } from '../schemas/product-shipping.schema';
 import { SyncJobData, SyncShippingJobData, SyncProducer } from './sync.producer';
 import { ProductMapper } from '../mappers/product.mapper';
 import { BpDetailResponse, BpProductDetail, BpLocationsResponse } from '../types/burger-print-catalog.type';
+import { CatalogV1Service } from '../../catalog-v1/catalog-v1.service';
 
 @Processor('burgerprints-sync-queue', { concurrency: 5 })
 export class SyncProcessor extends WorkerHost {
   private readonly logger = new Logger(SyncProcessor.name);
-  private readonly baseUrl: string;
+  private readonly apiBaseUrl: string;
+  private readonly catalogV1BaseUrl: string;
 
   constructor(
     private readonly httpService: HttpService,
@@ -28,9 +30,11 @@ export class SyncProcessor extends WorkerHost {
     private readonly productShippingModel: Model<ShippingRate>,
     @Inject(forwardRef(() => SyncProducer))
     private readonly syncProducer: SyncProducer,
+    private readonly catalogV1Service: CatalogV1Service,
   ) {
     super();
-    this.baseUrl = 'https://catalog-api.burgerprints.com';
+    this.apiBaseUrl = this.configService.get<string>('burgerprints.baseUrl') || 'https://api.burgerprints.com/v2';
+    this.catalogV1BaseUrl = process.env.CATALOG_V1_BASE_URL || 'https://catalog-api.burgerprints.com/api/v1/catalogsV2';
   }
 
   async process(job: Job<any, any, string>): Promise<any> {
@@ -44,6 +48,9 @@ export class SyncProcessor extends WorkerHost {
           break;
         case 'sync-shipping':
           await this.handleSyncShipping(job as Job<SyncShippingJobData, any, string>);
+          break;
+        case 'sync-out-of-stock':
+          await this.handleSyncOutOfStock();
           break;
         default:
           this.logger.warn(`Unknown job name: ${jobName}`);
@@ -68,9 +75,12 @@ export class SyncProcessor extends WorkerHost {
         }
       }
 
+      const processingTimes = await this.catalogV1Service.getProcessingByPartner(shortCode);
+
       const partners = Array.from(uniquePartnersMap.entries()).map(([id, name]) => ({
         partner_id: id,
         partner_name: name,
+        processingTime: processingTimes[id] || null,
       }));
 
       if (partners.length > 0) {
@@ -104,7 +114,7 @@ export class SyncProcessor extends WorkerHost {
 
   private async fetchAndProcessDetail(shortCode: string, aliasName: string): Promise<BpProductDetail | null> {
     if (!aliasName) return null;
-    const url = `${this.baseUrl}/api/v1/catalogsV2/alias/${aliasName}`;
+    const url = `${this.catalogV1BaseUrl}/alias/${aliasName}`;
     const response = await firstValueFrom(this.httpService.get<BpDetailResponse>(url));
     const data = response.data.data;
 
@@ -141,7 +151,7 @@ export class SyncProcessor extends WorkerHost {
   }
 
   private async fetchAndProcessShipping(shortCode: string, partnerId: string) {
-    const url = `${this.baseUrl}/api/v1/catalogsV2/locations?shortCode=${shortCode}&partnerId=${partnerId}`;
+    const url = `${this.catalogV1BaseUrl}/locations?shortCode=${shortCode}&partnerId=${partnerId}`;
     const response = await firstValueFrom(this.httpService.get<BpLocationsResponse>(url));
     const data = response.data.data || [];
 
@@ -173,6 +183,57 @@ export class SyncProcessor extends WorkerHost {
           countryCode: country.countryCode,
         });
       }
+    }
+  }
+
+  private async handleSyncOutOfStock() {
+    const skus: string[] = [];
+    try {
+      let page = 1;
+      let total = Infinity;
+      while (skus.length < total && page <= 60) {
+        const url = `${this.apiBaseUrl}/product/outofstock?page=${page}&page_size=1000`;
+        const res = await firstValueFrom(
+          this.httpService.get(url, {
+            headers: { 'api-key': this.configService.get<string>('burgerprints.apiKey') },
+            timeout: 20_000,
+          })
+        );
+        const data = res.data?.data ?? {};
+        total = data.total ?? skus.length;
+        const result: any[] = data.result ?? data.data ?? [];
+        if (result.length === 0) break;
+        
+        for (const item of result) {
+          if (Array.isArray(item.sku)) {
+            for (const sku of item.sku) skus.push(sku);
+          }
+        }
+        page += 1;
+      }
+
+      this.logger.log(`Fetched ${skus.length} out of stock SKUs. Updating variants...`);
+
+      // Reset all to inStock: true first
+      await this.productVariantModel.updateMany({}, { $set: { inStock: true } });
+
+      // Set inStock: false for the fetched SKUs
+      if (skus.length > 0) {
+        // Chunk the update to avoid payload too large issues if there are tens of thousands of SKUs
+        const chunkSize = 5000;
+        for (let i = 0; i < skus.length; i += chunkSize) {
+          const chunk = skus.slice(i, i + chunkSize);
+          await this.productVariantModel.updateMany(
+            { sku: { $in: chunk } },
+            { $set: { inStock: false } }
+          );
+        }
+      }
+      
+      this.logger.log(`Successfully updated out of stock statuses for ${skus.length} SKUs.`);
+    } catch (err) {
+      this.logger.error(`Failed to sync out of stock: ${(err as Error).message}`);
+      throw err;
     }
   }
 }

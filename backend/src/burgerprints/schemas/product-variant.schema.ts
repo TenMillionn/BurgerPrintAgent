@@ -58,6 +58,9 @@ export class Variant extends Document<string> {
   @Prop({ type: Number })
   shippingAddingWW: number;
 
+  @Prop({ type: Boolean, default: true })
+  inStock: boolean;
+
   @Prop()
   syncedAt: Date;
 }

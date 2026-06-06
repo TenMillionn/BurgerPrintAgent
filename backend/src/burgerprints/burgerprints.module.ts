@@ -1,6 +1,7 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { BurgerPrintsService } from './burgerprints.service';
+import { BurgerPrintToolService } from './burgerprints-tool.service';
 
 import { CatalogV1Module } from '../catalog-v1/catalog-v1.module';
 
@@ -27,8 +28,14 @@ import { BurgerprintsSyncController } from './burgerprints-sync.controller';
       { name: ShippingRate.name, schema: ShippingRateSchema },
     ]),],
   controllers: [BurgerprintsSyncController],
-  providers: [BurgerPrintsService, BurgerprintsSyncService, SyncProducer, SyncProcessor],
+  providers: [
+    BurgerPrintsService,
+    BurgerprintsSyncService, 
+    SyncProducer, 
+    SyncProcessor,
+    BurgerPrintToolService
+  ],
 
-  exports: [BurgerPrintsService],
+  exports: [BurgerPrintsService,BurgerPrintToolService],
 })
 export class BurgerPrintsModule {}

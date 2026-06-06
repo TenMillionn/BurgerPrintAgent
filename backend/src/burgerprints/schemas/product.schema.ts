@@ -27,6 +27,7 @@ export class Range {
 export class ProductPartner {
   @Prop() partner_id: string;
   @Prop() partner_name: string;
+  @Prop() processingTime: string;
 }
 
 @Schema({ collection: 'products', timestamps: true })
@@ -109,7 +110,19 @@ export class Product extends Document<string> {
   countColors: number;
 
   @Prop()
-  isNew: boolean;
+  isNewProduct: boolean;
+
+  @Prop()
+  location: string;
+
+  @Prop()
+  htmlDesc: string;
+
+  @Prop()
+  desc: string;
+
+  @Prop()
+  material: string;
 
   @Prop()
   createdDate: Date; // [y,m,d] → Date
@@ -126,6 +139,21 @@ export class Product extends Document<string> {
   // search + sync
   @Prop()
   searchText: string; // name+alias+desc + keywords VN/EN (text index)
+
+  @Prop({ type: String })
+  sizeChart: string; // JSON string
+
+  @Prop({ type: [SchemaFactory.name === 'SchemaFactory' ? Object : Object] }) // Using Mongoose mixed/Object type
+  decorations: any[];
+
+  @Prop({ type: [{ shortCode: String, name: String }] })
+  relatedProducts: { shortCode: string; name: string }[];
+
+  @Prop({ type: String })
+  resolutionRequire: string;
+
+  @Prop({ type: [Object] })
+  printable: any[];
 
   @Prop({ default: false })
   detailFetched: boolean;
