@@ -18,6 +18,13 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { KnowledgeService } from './knowledge.service';
 import { CreateKnowledgeDto } from './dto/create-knowledge.dto';
 
+// Minimal shape of an uploaded file (avoids depending on @types/multer's
+// global Express.Multer augmentation, which isn't present in the build image).
+interface UploadedMd {
+  buffer: Buffer;
+  originalname: string;
+}
+
 /**
  * Admin-only knowledge base management. The global JwtAuthGuard authenticates;
  * RolesGuard + @Roles('admin') restricts to admins (non-admin → 403).
@@ -37,7 +44,7 @@ export class KnowledgeController {
   async create(
     @Body() dto: CreateKnowledgeDto,
     @Req() req: any,
-    @UploadedFile() file?: Express.Multer.File,
+    @UploadedFile() file?: UploadedMd,
   ) {
     const content = file ? file.buffer.toString('utf-8') : dto.content;
     const title =
