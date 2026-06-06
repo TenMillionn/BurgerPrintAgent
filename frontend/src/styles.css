@@ -519,17 +519,6 @@ body {
 }
 .composer-plus:hover { background: var(--bg-sidebar-hover); }
 
-.composer-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border-medium);
-  background: transparent;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
 
 .composer-spacer { flex: 1; }
 

@@ -49,7 +49,7 @@ const MARKDOWN_COMPONENTS = {
 };
 
 export default function App() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   // ── Theme ──
   const [theme, setTheme] = useState(() => {
@@ -767,6 +767,7 @@ export default function App() {
                 streaming={busy && i === messages.length - 1}
                 toolLabel={toolLabel}
                 t={t}
+                locale={locale}
               />
             ),
           )}
@@ -793,7 +794,6 @@ export default function App() {
               <button className="composer-plus" type="button" title={t('composer.attach')} disabled>
                 <Plus size={18} strokeWidth={2} />
               </button>
-              <span className="composer-pill">{t('composer.model')}</span>
               <div className="composer-spacer" />
               <button
                 className="composer-send"
@@ -812,7 +812,7 @@ export default function App() {
 }
 
 /* ─── Assistant Message ─── */
-function AssistantMessage({ msg, streaming, toolLabel, t }) {
+function AssistantMessage({ msg, streaming, toolLabel, t, locale }) {
   const entries = useMemo(() => {
     const list = [];
     if (msg.thinking) {
@@ -835,7 +835,8 @@ function AssistantMessage({ msg, streaming, toolLabel, t }) {
       }
     }
     return [...list, ...byName.values()];
-  }, [msg.steps, msg.thinking]);
+    // locale is a dep so tool labels re-translate when the language switches.
+  }, [msg.steps, msg.thinking, locale]);
 
   const runningStep = msg.steps.find((s) => s.status === 'running');
   const thinkingLabel = runningStep
@@ -879,8 +880,11 @@ function Trace({ entries, streaming, toolLabel, t }) {
   const [overflows, setOverflows] = useState(false);
 
   const running = entries.find((e) => e.status === 'running');
+  // Most recent tool — so the title progresses through tool names (fade-slide on
+  // each) instead of snapping back to "thinking" between the brief running windows.
+  const lastTool = [...entries].reverse().find((e) => e.kind === 'tool');
   const title = streaming
-    ? running ? running.label : t('chat.thinking')
+    ? running?.label || lastTool?.label || t('chat.thinking')
     : entries.some((e) => e.kind === 'think')
       ? t('chat.thought')
       : `${t('chat.catalogSteps')} · ${entries.length} ${t('chat.steps')}`;

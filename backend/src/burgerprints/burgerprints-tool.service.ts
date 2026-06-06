@@ -71,18 +71,20 @@ export class BurgerPrintToolService {
     if (market) {
       matchQuery.region = market;
     }
-    if (maxCost != null) {
-      matchQuery.dropshipPriceMin = { $lte: maxCost };
-    }
+    // NOTE: do NOT pre-filter by dropshipPriceMin here. The authoritative price is
+    // the cheapest *variant* base_cost (computed below); dropshipPriceMin can differ,
+    // so a DB pre-filter would drop products whose real base_cost is within budget.
 
-    const sortOpt: any = kw ? { score: { $meta: 'textScore' } } : { dropshipPriceMin: 1 };
-    
-    // We fetch more items to handle cases where we want to limit *after* enriching
-    // but here we can just limit at DB level since dropshipPriceMin is reliable.
+    const sortOpt: any = kw
+      ? { score: { $meta: 'textScore' } }
+      : { dropshipPriceMin: 1 };
+
+    // Fetch extra candidates so the post-enrichment base_cost filter still leaves enough.
+    const fetchN = maxCost != null ? limit * 4 : limit * 2;
     const products = await this.productModel
       .find(matchQuery, kw ? { score: { $meta: 'textScore' } } : undefined)
       .sort(sortOpt)
-      .limit(limit * 2) // fetch a bit more to ensure we have enough after filtering
+      .limit(fetchN)
       .lean();
 
     const enriched = await Promise.all(
@@ -102,6 +104,8 @@ export class BurgerPrintToolService {
           colors: p.countColors,
           printing: p.techniques?.join(', ') || null,
           processing_time: p.productionTime ? `${p.productionTime.min}-${p.productionTime.max} business days` : null,
+          // Internal: text-relevance score (stripped before returning).
+          _score: (p as any).score ?? 0,
         };
       }),
     );
@@ -110,7 +114,22 @@ export class BurgerPrintToolService {
     if (maxCost != null) {
       result = result.filter((r) => (r.base_cost as number) <= maxCost);
     }
-    result.sort((a, b) => (a.base_cost as number) - (b.base_cost as number));
+    // Keyword/category search → relevance first, cheapest as tiebreaker (so a named
+    // product is not buried under cheaper, less-relevant matches). Browse (no keyword)
+    // → cheapest first.
+    if (kw) {
+      result.sort(
+        (a, b) =>
+          b._score - a._score ||
+          (a.base_cost as number) - (b.base_cost as number),
+      );
+    } else {
+      result.sort((a, b) => (a.base_cost as number) - (b.base_cost as number));
+    }
+
+    const products_out = result
+      .slice(0, limit)
+      .map(({ _score, ...rest }) => rest);
 
     return {
       query: {
@@ -118,10 +137,10 @@ export class BurgerPrintToolService {
         market: market || null,
         max_base_cost: maxCost,
       },
-      total_matched: products.length,
+      total_matched: result.length,
       qualified: result.length,
-      note: 'base_cost = giá vốn thấp nhất của sản phẩm (theo xưởng rẻ nhất).',
-      products: result.slice(0, limit),
+      note: 'base_cost = cheapest variant price (lowest-cost factory). Ranked by relevance when a keyword is given, else by price.',
+      products: products_out,
     };
   }
 
