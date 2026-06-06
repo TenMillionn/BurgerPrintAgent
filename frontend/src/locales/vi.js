@@ -41,8 +41,17 @@ const vi = {
   },
   tools: {
     search_products: 'Tìm sản phẩm',
-    get_product_pricing: 'Lấy giá theo xưởng',
+    compare_factories: 'So sánh xưởng',
     get_product_variants: 'Lấy SKU (màu/size)',
+    get_product_detail: 'Chi tiết sản phẩm',
+    get_product_colors: 'Xem màu',
+    get_decorations: 'Tùy chọn in',
+    get_related_products: 'Sản phẩm liên quan',
+    get_size_chart: 'Xem bảng size',
+    get_shipping: 'Tra phí vận chuyển',
+    calculate_margin: 'Tính margin',
+    create_order: 'Tạo đơn hàng',
+    search_history: 'Tìm trong lịch sử',
   },
   prompt: {
     title: 'System prompt của agent',
