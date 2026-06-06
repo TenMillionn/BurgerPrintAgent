@@ -13,7 +13,10 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { AgentChunk } from '../agent/agent.types';
-import { defaultSystemPrompt, AGENT_TOOLS_INFO } from '../agent/pi-agent-core.runtime';
+import {
+  defaultSystemPrompt,
+  AGENT_TOOLS_INFO,
+} from '../agent/pi-agent-core.runtime';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { ConversationService } from './conversation.service';
@@ -54,7 +57,11 @@ export class ConversationController {
     tools: Array<{ name: string; desc: string }>;
   }> {
     const custom = await this.conversation.getSystemPrompt(sessionId);
-    return { systemPrompt: custom, default: defaultSystemPrompt(), tools: AGENT_TOOLS_INFO };
+    return {
+      systemPrompt: custom,
+      default: defaultSystemPrompt(),
+      tools: AGENT_TOOLS_INFO,
+    };
   }
 
   /** Đặt/đổi system prompt cho phiên (rỗng = reset về mặc định). */
@@ -64,7 +71,10 @@ export class ConversationController {
     @Param('sessionId') sessionId: string,
     @Body() body: { systemPrompt?: string },
   ): Promise<{ ok: boolean; usingDefault: boolean }> {
-    await this.conversation.setSystemPrompt(sessionId, body?.systemPrompt ?? null);
+    await this.conversation.setSystemPrompt(
+      sessionId,
+      body?.systemPrompt ?? null,
+    );
     const usingDefault = !(body?.systemPrompt && body.systemPrompt.trim());
     return { ok: true, usingDefault };
   }

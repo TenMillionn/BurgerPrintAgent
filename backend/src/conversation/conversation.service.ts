@@ -24,7 +24,10 @@ export class ConversationService {
   async getSystemPrompt(sessionId: string): Promise<string | null> {
     return this.redis.get(this.spKey(sessionId));
   }
-  async setSystemPrompt(sessionId: string, prompt: string | null): Promise<void> {
+  async setSystemPrompt(
+    sessionId: string,
+    prompt: string | null,
+  ): Promise<void> {
     if (prompt && prompt.trim()) {
       await this.redis.setEx(this.spKey(sessionId), prompt, 7 * 24 * 3600);
     } else {
