@@ -21,6 +21,7 @@ export const envValidationSchema = Joi.object({
   GOOGLE_CLIENT_ID: Joi.string().optional().allow(''),
   GOOGLE_CLIENT_SECRET: Joi.string().optional().allow(''),
   GOOGLE_CALLBACK_URL: Joi.string().uri().optional().allow(''),
+  FRONTEND_URL: Joi.string().uri().optional().allow(''),
 
   SESSION_TTL_SECONDS: Joi.number().integer().positive().default(3600),
   MAX_CONTEXT_TURNS: Joi.number().integer().positive().default(12),

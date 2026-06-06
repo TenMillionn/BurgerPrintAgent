@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   Inject,
   forwardRef,
@@ -16,13 +17,15 @@ import {
 } from './session.types';
 
 /**
- * Lưu/khôi phục trạng thái phiên trên Redis và MongoDB. Mỗi phiên:
+ * Store/restore session state on Redis and MongoDB. Each session:
  *  - hash  `session:{id}`        → metadata (Redis)
- *  - list  `session:{id}:turns`  → lịch sử lượt (JSON) (Redis)
- * Lịch sử đầy đủ lưu trong MongoDB thông qua ConversationRepository.
+ *  - list  `session:{id}:turns`  → turn history (JSON) (Redis)
+ * Full history is persisted to MongoDB via ConversationRepository.
  */
 @Injectable()
 export class SessionService {
+  private readonly logger = new Logger(SessionService.name);
+
   constructor(
     private readonly redis: RedisService,
     private readonly config: ConfigService,
@@ -62,7 +65,7 @@ export class SessionService {
     return this.redis.exists(sessionKey(id));
   }
 
-  /** Lấy phiên từ Redis hoặc fallback MongoDB. */
+  /** Load the session from Redis, falling back to MongoDB. */
   async getSessionOrThrow(id: string): Promise<ConversationSession> {
     const data = await this.redis.hgetall(sessionKey(id));
     if (data && Object.keys(data).length > 0) {
@@ -78,7 +81,7 @@ export class SessionService {
     const conversation = await this.conversationRepo.findConversationById(id);
     if (!conversation || conversation.status === 'archived') {
       throw new NotFoundException(
-        `Session ${id} không tồn tại hoặc đã bị lưu trữ`,
+        `Session ${id} does not exist or has been archived`,
       );
     }
 
@@ -111,7 +114,7 @@ export class SessionService {
     };
   }
 
-  /** Gắn ngôn ngữ một lần ở lượt đầu (FR-007). */
+  /** Set the language once, on the first turn (FR-007). */
   async setLanguageIfUnset(id: string, language: Language): Promise<void> {
     const data = await this.redis.hgetall(sessionKey(id));
     if (data && !data.language) {
@@ -119,22 +122,59 @@ export class SessionService {
     }
   }
 
-  async appendTurn(id: string, turn: ConversationTurn): Promise<void> {
+  /**
+   * Append a turn to Redis (context) and persist it to MongoDB (source of truth).
+   * The DB write is awaited so messages are not silently lost; failures are logged
+   * with context. `metadata` carries assistant tool steps (and bumps updatedAt).
+   */
+  async appendTurn(
+    id: string,
+    turn: ConversationTurn,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
     await this.redis.rpush(turnsKey(id), JSON.stringify(turn));
     await this.touch(id);
 
-    // Fire and forget: save to DB asynchronously
-    this.conversationRepo
-      .saveMessage(id, turn.role, turn.content)
-      .catch((err) => {
-        console.error(
-          `Failed to save message to DB for conversation ${id}:`,
-          err,
-        );
-      });
+    try {
+      await this.conversationRepo.saveMessage(
+        id,
+        turn.role,
+        turn.content,
+        metadata,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to persist ${turn.role} message for conversation ${id}: ${
+          (err as Error).message
+        }`,
+      );
+    }
   }
 
-  /** Lịch sử rút gọn (maxContextTurns lượt gần nhất) làm ngữ cảnh agent (FR-003). */
+  /**
+   * Record a failed assistant turn: no corrupt reply content, just the error and
+   * any tool steps that ran, so the transcript stays clean (FR-018).
+   */
+  async recordAssistantError(
+    id: string,
+    error: string,
+    toolSteps: Array<{ name: string; order: number }>,
+  ): Promise<void> {
+    try {
+      await this.conversationRepo.saveMessage(id, 'assistant', '', {
+        error,
+        toolSteps,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to persist assistant error for conversation ${id}: ${
+          (err as Error).message
+        }`,
+      );
+    }
+  }
+
+  /** Trimmed history (last maxContextTurns) used as agent context (FR-003). */
   async getContextTurns(id: string): Promise<ConversationTurn[]> {
     // We assume getSessionOrThrow is called before this, ensuring data is in Redis
     const start = -this.maxContextTurns;
@@ -148,7 +188,7 @@ export class SessionService {
     return raw.map((r) => JSON.parse(r) as ConversationTurn);
   }
 
-  /** Refresh TTL của cả metadata và history (FR-014). */
+  /** Refresh TTL of both metadata and history (FR-014). */
   async touch(id: string): Promise<void> {
     const now = new Date().toISOString();
     await this.redis.hset(sessionKey(id), { updatedAt: now });

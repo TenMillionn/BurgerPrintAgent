@@ -52,7 +52,18 @@ export class ConversationRepository {
       content,
       metadata,
     });
-    return message.save();
+    const saved = await message.save();
+    // Bump the parent conversation's updatedAt so listing reorders correctly.
+    await this.conversationModel
+      .updateOne({ _id: conversationId }, { $currentDate: { updatedAt: true } })
+      .exec();
+    return saved;
+  }
+
+  /** Delete a conversation and all of its messages (cascade). */
+  async deleteConversation(conversationId: string): Promise<void> {
+    await this.messageModel.deleteMany({ conversationId }).exec();
+    await this.conversationModel.deleteOne({ _id: conversationId }).exec();
   }
 
   async getMessagesByConversation(

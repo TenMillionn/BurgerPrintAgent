@@ -74,6 +74,27 @@ export class AuthController {
   @Get('google/callback')
   async googleAuthRedirect(@Req() req: any, @Res() res: any) {
     const { accessToken, refreshToken } = req.user;
-    return res.json(req.user);
+    const params = new URLSearchParams({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    // Default: redirect back to the web app. If the flow carried an ext_redirect
+    // (e.g. a Chrome extension's chromiumapp.org URL via OAuth state), use that.
+    let target =
+      (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '') +
+      '/';
+    const state = req.query?.state;
+    if (typeof state === 'string' && state) {
+      try {
+        const decoded = JSON.parse(
+          Buffer.from(state, 'base64url').toString(),
+        );
+        if (decoded.ext_redirect) target = decoded.ext_redirect;
+      } catch {
+        /* ignore malformed state */
+      }
+    }
+    const sep = target.includes('?') ? '&' : '?';
+    return res.redirect(`${target}${sep}${params.toString()}`);
   }
 }
