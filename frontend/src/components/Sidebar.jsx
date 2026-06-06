@@ -8,6 +8,7 @@ import {
   Moon,
   Pencil,
   Trash2,
+  BookOpen,
 } from 'lucide-react';
 import { useTranslation } from '../i18n';
 
@@ -25,6 +26,8 @@ export default function Sidebar({
   onSelect,
   onRename,
   onDelete,
+  isAdmin = false,
+  onOpenKnowledge,
 }) {
   const { t, locale, setLocale } = useTranslation();
 
@@ -54,6 +57,12 @@ export default function Sidebar({
             <MessageSquarePlus size={19} strokeWidth={1.8} className="sidebar-item-icon" />
             <span className="sidebar-item-label">{t('sidebar.newChat')}</span>
           </button>
+          {isAdmin && (
+            <button className="sidebar-item" onClick={onOpenKnowledge}>
+              <BookOpen size={19} strokeWidth={1.8} className="sidebar-item-icon" />
+              <span className="sidebar-item-label">{t('knowledge.open')}</span>
+            </button>
+          )}
         </nav>
 
         {/* Conversation history */}
