@@ -13,6 +13,10 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { AuthLoggingMiddleware } from './common/middlewares/auth-logging.middleware';
 import { LoggingModule } from './logging/logging.module';
+import { BullModule } from '@nestjs/bullmq';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ConfigService } from '@nestjs/config';
+import Redis from 'ioredis';
 
 @Module({
   imports: [
@@ -27,6 +31,16 @@ import { LoggingModule } from './logging/logging.module';
     AgentModule,
     ConversationModule,
     HealthModule,
+    ScheduleModule.forRoot(),
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: new Redis(config.get<string>('redis.url') as string, {
+          maxRetriesPerRequest: null,
+          enableReadyCheck: false,
+        }) as any,
+      }),
+    }),
   ],
   providers: [
     {
