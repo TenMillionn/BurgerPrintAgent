@@ -40,6 +40,76 @@ export class BurgerPrintsService {
     return this.catalogV1.getShipping(shortCode, partnerId, country);
   }
 
+  /** Tool get_size_chart: bảng số đo theo size (catalog-api v1). */
+  async getSizeChart(shortCode: string): Promise<unknown> {
+    return this.catalogV1.getSizeChart(shortCode);
+  }
+
+  /** Tool get_decorations: kỹ thuật in + yêu cầu file thiết kế. */
+  async getDecorations(shortCode: string): Promise<unknown> {
+    return this.catalogV1.getDecorations(shortCode);
+  }
+
+  /** Tool get_related_products: sản phẩm liên quan/gợi ý. */
+  async getRelatedProducts(shortCode: string): Promise<unknown> {
+    return this.catalogV1.getRelatedProducts(shortCode);
+  }
+
+  /** Tool get_product_colors: danh sách màu đầy đủ (tên + hex) — từ v2. */
+  async getProductColors(shortCode: string): Promise<unknown> {
+    const detail = await this.getProductDetail(shortCode);
+    if (!detail || (detail as any).error) return detail;
+    const d = (detail as any).data ?? detail;
+    const colors = (d.available_colors ?? []).map((c: any) => ({
+      name: c.name,
+      hex: c.color_hex,
+    }));
+    return { short_code: d.short_code, total: colors.length, colors };
+  }
+
+  /**
+   * Tool get_product_detail: field "thường" (scalar) của 1 sản phẩm — gộp v2 + catalog-v1.
+   * Data MẢNG (màu/SKU/xưởng/decorations/size chart/ship) lấy bằng tool riêng.
+   */
+  async getProductDetail_card(shortCode: string): Promise<unknown> {
+    const detail = await this.getProductDetail(shortCode);
+    if (!detail || (detail as any).error) return detail;
+    const d = (detail as any).data ?? detail;
+    const variations: any[] = d.variations ?? [];
+    let min = Infinity;
+    let max = -Infinity;
+    const factories = new Set<string>();
+    for (const v of variations) {
+      const p = parseFloat(v.price);
+      if (!Number.isNaN(p)) {
+        min = Math.min(min, p);
+        max = Math.max(max, p);
+      }
+      if (v.partner_name) factories.add(v.partner_name);
+    }
+    const meta = this.parseHtmlDesc(d.html_desc ?? '');
+    const info = await this.catalogV1.getCatalogInfo(shortCode); // có thể null
+
+    return {
+      short_code: d.short_code,
+      name: cleanName(d.name),
+      market: this.marketOf(d.short_code, meta.location),
+      description: info?.description ?? null,
+      base_cost: Number.isFinite(min) ? { min, max } : null,
+      currency: info?.currency ?? 'USD',
+      print_sides: d.print_area ?? [], // in được mặt nào
+      printing: meta.printing,
+      processing_time: info?.processing_time ?? null,
+      production_time: info?.production_time ?? null,
+      shipping_summary: info?.shipping_summary ?? null,
+      mockup_image: d.url || info?.mockup_image || null,
+      colors_count: (d.available_colors ?? []).length,
+      sizes: (d.available_sizes ?? []).map((s: any) => s.name),
+      factories_count: factories.size,
+      more: 'Array details via dedicated tools: get_product_colors (colors+hex) · get_decorations (print method + file requirement) · get_size_chart (measurements) · compare_factories (price per factory + partner_id) · get_product_variants (SKUs) · get_shipping (shipping per country) · get_related_products.',
+    };
+  }
+
   private get baseUrl(): string {
     return this.config.get<string>('burgerprints.baseUrl') as string;
   }
@@ -165,7 +235,7 @@ export class BurgerPrintsService {
       enriched: toEnrich.length,
       qualified: result.length,
       truncated: matched.length > ENRICH_CAP,
-      note: 'base_cost = giá vốn thấp nhất của sản phẩm (theo xưởng rẻ nhất). Phí/thời gian ship theo điểm đến KHÔNG có trong catalog; processing_time là thời gian sản xuất nếu API có ghi.',
+      note: 'base_cost = lowest base cost of the product (cheapest factory). Shipping fee/time by destination is NOT in this list (use get_shipping); processing_time is production time if the API provides it.',
       products: result.slice(0, limit),
     };
   }
@@ -297,7 +367,7 @@ export class BurgerPrintsService {
       name: cleanName(d.name),
       total_matched: matched.length,
       out_of_stock_count: matched.filter((m) => !m.in_stock).length,
-      note: 'Dùng catalog_sku (KHÔNG phải sku) khi create_order. in_stock=false là SKU hết hàng — không gợi ý/đặt.',
+      note: 'Use catalog_sku (NOT sku) for create_order. in_stock=false means out of stock — do not recommend/order it.',
       variants: matched.slice(0, limit),
     };
   }
@@ -365,11 +435,11 @@ export class BurgerPrintsService {
       return { sandbox: body.sandbox, result: res.data };
     } catch (err) {
       const msg = (err as any)?.response?.data ?? (err as Error).message;
-      this.logger.error(`Tạo đơn lỗi: ${JSON.stringify(msg)}`);
+      this.logger.error(`Create order failed: ${JSON.stringify(msg)}`);
       return {
         error: true,
         code: 'CREATE_ORDER_ERROR',
-        message: 'Không tạo được đơn',
+        message: 'Failed to create order',
         detail: msg,
       };
     }
@@ -403,7 +473,7 @@ export class BurgerPrintsService {
       }
       await this.redis.setEx(cacheKey, JSON.stringify(skus), this.cacheTtl);
     } catch (err) {
-      this.logger.error(`outofstock lỗi: ${(err as Error).message}`);
+      this.logger.error(`outofstock error: ${(err as Error).message}`);
     }
     return new Set(skus);
   }
@@ -456,11 +526,11 @@ export class BurgerPrintsService {
       return out;
     } catch (err) {
       const msg = (err as Error).message;
-      this.logger.error(`BurgerPrints API lỗi GET /product (list): ${msg}`);
+      this.logger.error(`BurgerPrints API error GET /product (list): ${msg}`);
       return {
         error: true,
         code: 'BURGERPRINTS_API_ERROR',
-        message: `Không lấy được catalog từ BurgerPrints API: ${msg}`,
+        message: `Failed to fetch catalog from BurgerPrints API: ${msg}`,
       } as any;
     }
   }
@@ -486,11 +556,11 @@ export class BurgerPrintsService {
       return res.data;
     } catch (err) {
       const msg = (err as Error).message;
-      this.logger.error(`BurgerPrints API lỗi GET ${path}: ${msg}`);
+      this.logger.error(`BurgerPrints API error GET ${path}: ${msg}`);
       return {
         error: true,
         code: 'BURGERPRINTS_API_ERROR',
-        message: `Không lấy được dữ liệu từ BurgerPrints API: ${msg}`,
+        message: `Failed to fetch data from BurgerPrints API: ${msg}`,
       };
     }
   }
