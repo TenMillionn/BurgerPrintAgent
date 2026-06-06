@@ -647,11 +647,17 @@ export default function App() {
       <div className="main-area">
         {/* Guest top-right auth buttons (ChatGPT-style) */}
         {!showModal && isGuest && (
-          <div className="main-topbar">
-            <button className="topbar-login" onClick={() => setShowModal(true)}>
+          <div className="absolute top-3.5 right-[18px] z-30 flex items-center gap-2.5">
+            <button
+              className="text-[13px] font-semibold cursor-pointer px-4 py-2 rounded-full bg-[var(--accent)] text-white transition hover:brightness-110"
+              onClick={() => setShowModal(true)}
+            >
               {t('guestMode.login')}
             </button>
-            <button className="topbar-signup" onClick={() => setShowModal(true)}>
+            <button
+              className="text-[13px] font-semibold cursor-pointer px-4 py-2 rounded-full border border-[var(--border-medium)] bg-[var(--bg-composer)] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-sidebar-hover)] hover:border-[var(--accent)]"
+              onClick={() => setShowModal(true)}
+            >
               {t('guestMode.signup')}
             </button>
           </div>
@@ -696,7 +702,22 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
               >
-                {t('chat.greeting')}
+                {t('chat.greeting').split('{logo}').map((part, i, arr) => (
+                  <span key={i}>
+                    {part.trim()}
+                    {i < arr.length - 1 && (
+                     <span
+                        className="inline-block ml-2 relative h-7 w-[220px] align-[-0.02em] mx-[0.18em] translate-y-[0.04em]"
+                     >
+                       <img
+                        src="./LogoBGP.svg"
+                        alt="BurgerPrints"
+                        className='absolute left-0 w-full h-full top-[3px]'
+                      />
+                     </span>
+                    )}
+                  </span>
+                ))}
               </motion.div>
               <motion.div
                 className="greeting-sub"
@@ -724,7 +745,7 @@ export default function App() {
           )}
 
           {messages.length > 0 && (
-            <div className="text-center text-xs font-medium mt-1 mb-1" style={{ color: 'var(--text-muted)' }}>
+            <div className="mt-1 mb-1 text-xs font-medium text-center" style={{ color: 'var(--text-muted)' }}>
               {t('chat.today')}
             </div>
           )}
@@ -828,7 +849,7 @@ function AssistantMessage({ msg, streaming, toolLabel, t }) {
         <span className="shimmer">{thinkingLabel}…</span>
       )}
       {msg.text && (
-        <div className="chat-markdown max-w-full break-words">
+        <div className="max-w-full break-words chat-markdown">
           <ReactMarkdown
             remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
             rehypePlugins={[rehypeKatex]}
@@ -945,7 +966,7 @@ function Trace({ entries, streaming, toolLabel, t }) {
                           {e.results.map((r, ri) => (
                             <div key={ri} className="flex items-center gap-2 px-3 py-1.5 text-[13px]" style={{ borderBottom: ri < e.results.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
                               <span className="w-1.5 h-1.5 rounded-full flex-none" style={{ background: 'var(--accent)' }} />
-                              <span className="truncate flex-1" style={{ color: 'var(--text-primary)' }}>{r.title}</span>
+                              <span className="flex-1 truncate" style={{ color: 'var(--text-primary)' }}>{r.title}</span>
                               {r.meta && <span className="flex-none" style={{ color: 'var(--text-muted)' }}>{r.meta}</span>}
                             </div>
                           ))}

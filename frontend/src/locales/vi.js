@@ -25,7 +25,7 @@ const vi = {
     login: 'Đăng nhập',
   },
   chat: {
-    greeting: 'Chào bạn! Tôi là BurgerPrints Agent.',
+    greeting: 'Chào bạn! Tôi là {logo} Agent.',
     greetingSub: 'Bạn có thể gửi câu hỏi về sản phẩm, xưởng in và giá fulfillment để bắt đầu nhé!',
     today: 'Hôm nay',
     thinking: 'Đang suy nghĩ',
@@ -120,7 +120,8 @@ const vi = {
     saving: 'Đang lưu…',
   },
   modal: {
-    welcome: 'Chào mừng đến với BurgerPrints Agent',
+    welcomeTitle: 'Chào mừng 👋',
+    welcome: 'Chào mừng đến với {logo} Agent',
     endpoint: 'Endpoint',
     email: 'Email',
     password: 'Mật khẩu',
