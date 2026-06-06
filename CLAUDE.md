@@ -1,11 +1,13 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-`specs/002-burgerprint-api-sync/plan.md`
+`specs/003-auth-persistence/plan.md`
 
-New dedicated module `burgerprints-sync` to fetch data from the BurgerPrint CatalogV2 API.
-Uses BullMQ to process per-product sync reliably and concurrently.
-JWT protected endpoint for manual triggering + cron schedule.
-MongoDB schema extensions to `Product` model.
-Spec & artifacts ở `specs/002-burgerprint-api-sync/`.
+Feature 003 finishes & wires the auth + persistence layer: complete user auth
+(email/password + JWT access/rotating-refresh + Google OAuth, per-user isolation),
+persist conversations (list/get/rename/delete, owner-scoped) and messages (user +
+assistant + tool steps, reloaded on reopen) into MongoDB, wired into the existing
+SSE chat flow. Most scaffolding already exists — the work is exposing endpoints +
+ownership checks + reliable persistence + frontend Sidebar wiring.
+Spec & artifacts in `specs/003-auth-persistence/`.
 <!-- SPECKIT END -->

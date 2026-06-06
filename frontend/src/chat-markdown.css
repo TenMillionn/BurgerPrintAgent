@@ -86,15 +86,27 @@
 .chat-markdown li::marker { color: var(--text-muted); }
 
 /* Tables */
-.chat-markdown table {
-  width: 100%;
+/* Horizontal-scroll wrapper for wide tables. */
+.md-table-scroll {
   margin: 0.92em 0;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.chat-markdown table {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
   border-collapse: separate;
   border-spacing: 0;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--table-border);
   font-size: 13px;
+}
+.chat-markdown th,
+.chat-markdown td {
+  white-space: nowrap; /* keep columns on one line → wrapper scrolls when wide */
 }
 .chat-markdown th,
 .chat-markdown td {

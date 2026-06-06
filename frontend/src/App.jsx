@@ -14,7 +14,10 @@ import { useTranslation } from './i18n';
 // thẳng backend (mặc định cổng 3001 — đổi trong ô "Backend URL" nếu cần).
 const isExtension =
   typeof location !== 'undefined' && location.protocol === 'chrome-extension:';
-const DEFAULT_API = isExtension ? 'http://localhost:3000' : '/api';
+// Web build talks to the backend through the dev/nginx proxy ('/api').
+// The Chrome extension runs on a chrome-extension:// origin (no proxy) so it
+// calls the backend directly — point this at wherever the backend runs.
+const DEFAULT_API = isExtension ? 'http://localhost:3001' : '/api';
 
 // Chuẩn hoá LaTeX: \[ \] và \( \) → $$ $$ để remark-math (đã tắt single-$) render được.
 // KHÔNG đụng tới '$' đơn (tiền tệ $25) → tránh nuốt chữ thành công thức.
@@ -35,6 +38,12 @@ const MARKDOWN_COMPONENTS = {
     ) : (
       <span>{children}</span>
     ),
+  // Wrap wide tables so they scroll horizontally instead of breaking the layout.
+  table: ({ children }) => (
+    <div className="md-table-scroll">
+      <table>{children}</table>
+    </div>
+  ),
 };
 
 export default function App() {
@@ -58,21 +67,37 @@ export default function App() {
   const savedAuth = (() => {
     try { return JSON.parse(localStorage.getItem('bp_auth') || 'null'); } catch { return null; }
   })();
-  const savedGuest = localStorage.getItem('bp_guest_session');
+  // Guest sessions (random UUIDs) are deprecated now that data is per-user;
+  // drop any stale one so we never query the backend with an invalid id.
+  try {
+    localStorage.removeItem('bp_guest_session');
+  } catch {
+    /* noop */
+  }
 
   const [apiBase] = useState(DEFAULT_API);
   const [email, setEmail] = useState('seller@test.com');
   const [password, setPassword] = useState('Password123');
   const [auth, setAuth] = useState(savedAuth || null);
   const [token, setToken] = useState(savedAuth?.token || '');
-  const [sessionId, setSessionId] = useState(savedGuest || '');
+  const [refreshToken, setRefreshToken] = useState(savedAuth?.refreshToken || '');
+  const [sessionId, setSessionId] = useState('');
+
+  // Always-current auth for fetch closures (avoids stale tokens after refresh).
+  const authRef = useRef({ token: savedAuth?.token || '', refreshToken: savedAuth?.refreshToken || '' });
+  useEffect(() => {
+    authRef.current = { token, refreshToken };
+  }, [token, refreshToken]);
   const [status, setStatus] = useState(t('status.disconnected'));
   const [connecting, setConnecting] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  const [showModal, setShowModal] = useState(true);
+  // Keep the user signed in across reloads: only show the login modal when there
+  // is no saved access token.
+  const [showModal, setShowModal] = useState(!savedAuth?.token);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [conversations, setConversations] = useState([]);
   const scrollRef = useRef(null);
   const taRef = useRef(null);
   const stick = useRef(true);
@@ -111,33 +136,6 @@ export default function App() {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  async function connect() {
-    setConnecting(true);
-    setStatus(t('status.connecting'));
-    try {
-      let tk = await login();
-      if (!tk) {
-        await register();
-        tk = await login();
-      }
-      if (!tk) throw new Error(t('status.errorNoToken'));
-      setToken(tk);
-      const res = await fetch(`${apiBase}/conversations`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${tk}` },
-      });
-      const data = await res.json();
-      if (!data.sessionId) throw new Error(t('status.errorNoSession'));
-      setSessionId(data.sessionId);
-      setStatus(`${t('status.connected')} ${data.sessionId.slice(0, 8)}…`);
-      setMessages([]);
-    } catch (e) {
-      setStatus(`${t('status.error')}: ${e.message}`);
-    } finally {
-      setConnecting(false);
-    }
-  }
-
   async function login() {
     try {
       const r = await fetch(`${apiBase}/auth/login`, {
@@ -145,42 +143,201 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      if (!r.ok) return '';
+      if (!r.ok) return null;
       const d = await r.json();
-      return d.accessToken || '';
+      return { accessToken: d.accessToken || '', refreshToken: d.refreshToken || '' };
     } catch {
-      return '';
+      return null;
     }
   }
 
+  // Exchange the refresh token for a fresh access token (rotation). Returns the
+  // new access token, or null if the refresh token is invalid/expired.
+  const doRefresh = useCallback(async () => {
+    const rt = authRef.current.refreshToken;
+    if (!rt) return null;
+    try {
+      const r = await fetch(`${apiBase}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: rt }),
+      });
+      if (!r.ok) return null;
+      const d = await r.json();
+      authRef.current = { token: d.accessToken, refreshToken: d.refreshToken };
+      setToken(d.accessToken);
+      setRefreshToken(d.refreshToken);
+      try {
+        const saved = JSON.parse(localStorage.getItem('bp_auth') || '{}');
+        localStorage.setItem(
+          'bp_auth',
+          JSON.stringify({ ...saved, token: d.accessToken, refreshToken: d.refreshToken }),
+        );
+      } catch {
+        /* noop */
+      }
+      return d.accessToken;
+    } catch {
+      return null;
+    }
+  }, [apiBase]);
+
+  const handleSessionExpired = useCallback(() => {
+    try {
+      localStorage.removeItem('bp_auth');
+    } catch {
+      /* noop */
+    }
+    authRef.current = { token: '', refreshToken: '' };
+    setAuth(null);
+    setToken('');
+    setRefreshToken('');
+    setSessionId('');
+    setShowModal(true);
+  }, []);
+
+  // Authenticated fetch: attaches the access token and, on 401, transparently
+  // refreshes once and retries. If refresh fails, the session is ended.
+  const apiFetch = useCallback(
+    async (path, opts = {}, _retried = false) => {
+      const headers = {
+        ...(opts.headers || {}),
+        Authorization: `Bearer ${authRef.current.token}`,
+      };
+      const res = await fetch(`${apiBase}${path}`, { ...opts, headers });
+      if (res.status === 401 && !_retried) {
+        const fresh = await doRefresh();
+        if (fresh) return apiFetch(path, opts, true);
+        handleSessionExpired();
+      }
+      return res;
+    },
+    [apiBase, doRefresh, handleSessionExpired],
+  );
+
+  // Start the real Google OAuth flow in a popup window so the current page (or
+  // the extension side panel) is not navigated away. The popup lands back on the
+  // web app with tokens, relays them via BroadcastChannel, then closes itself.
   function handleGoogleLogin() {
-    const hardToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2YTIzOTNlNDE5NmE4ODUzMzZiMjhmOTciLCJlbWFpbCI6InRydW5nZG9uZzA4MTFAZ21haWwuY29tIiwicm9sZSI6InVzZXIiLCJpYXQiOjE3ODA3MTY1MTYsImV4cCI6MTc4MDgwMjkxNn0.qaZQklG9LCApickYWst6tTAzZjfXePXrq0PvXWimAdM";
-    const userInfo = {
-      id: "6a2393e4196a885336b28f97",
-      email: "trungdong0811@gmail.com",
-      displayName: "John Doe",
-      role: "user",
-    };
-    const authData = { token: hardToken, user: userInfo };
-    localStorage.setItem('bp_auth', JSON.stringify(authData));
-    setAuth(authData);
-    setToken(hardToken);
-    setShowModal(false);
-    connect();
+    // Chrome extension: use the identity API so tokens come straight back to the
+    // extension (the redirect-to-web-origin trick can't reach chrome-extension://).
+    const ident =
+      isExtension && window.chrome?.identity?.launchWebAuthFlow
+        ? window.chrome.identity
+        : null;
+    if (ident) {
+      const redirectUri = ident.getRedirectURL(); // https://<id>.chromiumapp.org/
+      const authUrl = `${apiBase}/auth/google?ext_redirect=${encodeURIComponent(redirectUri)}`;
+      ident.launchWebAuthFlow({ url: authUrl, interactive: true }, (responseUrl) => {
+        if (!responseUrl || window.chrome?.runtime?.lastError) return;
+        try {
+          const u = new URL(responseUrl);
+          const at = u.searchParams.get('access_token');
+          if (at) finishSignIn(at, u.searchParams.get('refresh_token') || '');
+        } catch {
+          /* ignore */
+        }
+      });
+      return;
+    }
+    // Web: popup flow (tokens relayed via BroadcastChannel).
+    const url = `${apiBase}/auth/google`;
+    const popup = window.open(url, 'bp_google_login', 'width=480,height=660');
+    if (!popup) {
+      window.location.href = url; // popup blocked → same-tab redirect
+    }
   }
+
+
+  // Finish a signed-in session given the token pair: store both + fetch profile.
+  const finishSignIn = useCallback(
+    async (accessToken, refreshTok = '') => {
+      authRef.current = { token: accessToken, refreshToken: refreshTok };
+      setToken(accessToken);
+      setRefreshToken(refreshTok);
+      try {
+        const r = await fetch(`${apiBase}/auth/me`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const user = r.ok ? await r.json() : null;
+        const authData = { token: accessToken, refreshToken: refreshTok, user: user || {} };
+        localStorage.setItem('bp_auth', JSON.stringify(authData));
+        setAuth(authData);
+      } catch {
+        /* ignore */
+      }
+      setShowModal(false);
+    },
+    [apiBase],
+  );
+
+  // On load, complete a Google OAuth redirect (tokens in the query string).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('access_token');
+    if (!accessToken) return;
+    const refreshTok = params.get('refresh_token') || '';
+    // If we are the OAuth popup, relay the tokens to the opener and close.
+    if (window.opener && window.opener !== window) {
+      try {
+        const ch = new BroadcastChannel('bp_oauth');
+        ch.postMessage({ accessToken, refreshToken: refreshTok });
+        ch.close();
+      } catch {
+        /* noop */
+      }
+      window.close();
+      return;
+    }
+    // Otherwise this tab itself was redirected → sign in here.
+    finishSignIn(accessToken, refreshTok);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, [finishSignIn]);
+
+  // Receive tokens relayed from the OAuth popup (same-origin web app).
+  useEffect(() => {
+    let ch;
+    try {
+      ch = new BroadcastChannel('bp_oauth');
+      ch.onmessage = (e) => {
+        if (e.data?.accessToken) {
+          finishSignIn(e.data.accessToken, e.data.refreshToken || '');
+        }
+      };
+    } catch {
+      /* BroadcastChannel unsupported */
+    }
+    return () => {
+      try {
+        ch && ch.close();
+      } catch {
+        /* noop */
+      }
+    };
+  }, [finishSignIn]);
 
   async function handleEmailLogin() {
-    setShowModal(false);
-    setAuth({ token: '', user: { displayName: email } });
-    await connect();
+    setConnecting(true);
+    try {
+      let creds = await login();
+      if (!creds?.accessToken) {
+        await register();
+        creds = await login();
+      }
+      if (!creds?.accessToken) {
+        setStatus(`${t('status.error')}: ${t('status.errorNoToken')}`);
+        return;
+      }
+      await finishSignIn(creds.accessToken, creds.refreshToken);
+    } finally {
+      setConnecting(false);
+    }
   }
 
+  // "Continue as guest" signs in with the default demo account (per-user data
+  // isolation now requires a real account).
   function handleGuestChat() {
-    const guestId = crypto.randomUUID();
-    localStorage.setItem('bp_guest_session', guestId);
-    setSessionId(guestId);
-    setAuth({ token: '', user: { displayName: 'Guest' } });
-    setShowModal(false);
+    handleEmailLogin();
   }
 
   async function register() {
@@ -206,14 +363,125 @@ export default function App() {
     });
   }
 
+  // Load the user's conversations (newest-updated first).
+  const loadConversations = useCallback(async () => {
+    if (!authRef.current.token) return;
+    try {
+      const r = await apiFetch('/conversations'); // refreshes the token on 401
+      if (r.ok) {
+        const d = await r.json();
+        setConversations(d.conversations || []);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [apiFetch]);
+
+  useEffect(() => {
+    loadConversations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadConversations, token]);
+
+  // Open a saved conversation and load its full history into the chat.
+  async function selectConversation(id) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/conversations/${id}`);
+      if (!r.ok) {
+        // Conversation gone (deleted/expired) → drop the saved active id.
+        try {
+          localStorage.removeItem('bp_active');
+        } catch {
+          /* noop */
+        }
+        setSessionId('');
+        setMessages([]);
+        return;
+      }
+      const d = await r.json();
+      const msgs = (d.messages || [])
+        .filter((m) => m.content || (m.toolSteps && m.toolSteps.length))
+        .map((m) => ({
+          role: m.role,
+          text: m.content || '',
+          steps: (m.toolSteps || []).map((s) => ({ name: s.name, status: 'done' })),
+          thinking: '',
+        }));
+      setSessionId(id);
+      setMessages(msgs);
+      stick.current = true;
+    } catch {
+      /* ignore */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Persist the open conversation so a reload reopens it (no router → works in
+  // the Chrome extension side panel).
+  useEffect(() => {
+    try {
+      if (sessionId) localStorage.setItem('bp_active', sessionId);
+      else localStorage.removeItem('bp_active');
+    } catch {
+      /* noop */
+    }
+  }, [sessionId]);
+
+  // On load, reopen the last active conversation once a token is available.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || !token || sessionId) return;
+    let active = null;
+    try {
+      active = localStorage.getItem('bp_active');
+    } catch {
+      /* noop */
+    }
+    if (active) {
+      restoredRef.current = true;
+      selectConversation(active);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, sessionId]);
+
+  async function renameConversation(id, title) {
+    if (!title || !title.trim()) return;
+    await apiFetch(`/conversations/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title.trim().slice(0, 120) }),
+    }).catch(() => {});
+    loadConversations();
+  }
+
+  async function deleteConversation(id) {
+    await apiFetch(`/conversations/${id}`, { method: 'DELETE' }).catch(() => {});
+    if (id === sessionId) {
+      setSessionId('');
+      setMessages([]);
+    }
+    loadConversations();
+  }
+
   async function send() {
     const msg = input.trim();
     if (!msg || busy) return;
-    if (!sessionId) {
-      const newId = crypto.randomUUID();
-      setSessionId(newId);
-      localStorage.setItem('bp_guest_session', newId);
+
+    // Create a real persisted conversation lazily on the first message.
+    let sid = sessionId;
+    if (!sid) {
+      try {
+        const r = await apiFetch('/conversations', { method: 'POST' });
+        const d = await r.json();
+        sid = d.sessionId;
+        setSessionId(sid);
+      } catch (e) {
+        return;
+      }
     }
+
     setInput('');
     setBusy(true);
     stick.current = true;
@@ -224,10 +492,10 @@ export default function App() {
     ]);
 
     try {
-      const url = `${apiBase}/conversations/${sessionId}/stream?message=${encodeURIComponent(msg)}`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
-      });
+      const res = await apiFetch(
+        `/conversations/${sid}/stream?message=${encodeURIComponent(msg)}`,
+        { headers: { Accept: 'text/event-stream' } },
+      );
       if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
 
       const reader = res.body.getReader();
@@ -245,6 +513,7 @@ export default function App() {
       patchLast((a) => ({ ...a, text: a.text + `\n[${t('chat.connectionError')}: ${e.message}]` }));
     } finally {
       setBusy(false);
+      loadConversations(); // refresh titles/order after the turn
     }
   }
 
@@ -282,9 +551,7 @@ export default function App() {
 
   function handleNewChat() {
     setMessages([]);
-    setSessionId('');
-    setStatus(t('status.disconnected'));
-    if (token) connect();
+    setSessionId(''); // a real conversation is created lazily on the first message
   }
 
   function handleLogout() {
@@ -297,7 +564,7 @@ export default function App() {
     setShowModal(true);
   }
 
-  const ready = !!sessionId;
+  const ready = !!token || !!sessionId;
   const userName = auth?.user?.displayName || auth?.user?.email || '';
   const userEmail = auth?.user?.email || '';
 
@@ -314,6 +581,11 @@ export default function App() {
           userEmail={userEmail}
           theme={theme}
           onToggleTheme={toggleTheme}
+          conversations={conversations}
+          activeId={sessionId}
+          onSelect={selectConversation}
+          onRename={renameConversation}
+          onDelete={deleteConversation}
         />
       )}
 
@@ -448,7 +720,7 @@ export default function App() {
               <button className="composer-plus" type="button" title={t('composer.attach')} disabled>
                 <Plus size={18} strokeWidth={2} />
               </button>
-              <ModelSelector apiBase={apiBase} sessionId={sessionId} token={token} />
+              <span className="composer-pill">{t('composer.model')}</span>
               <div className="composer-spacer" />
               <button
                 className="composer-send"
@@ -462,114 +734,6 @@ export default function App() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ─── Model Selector (settings: chọn model cho phiên) ─── */
-function ModelSelector({ apiBase, sessionId, token }) {
-  const [models, setModels] = useState([]);
-  const [current, setCurrent] = useState('');
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    if (!sessionId || !token) return;
-    fetch(`${apiBase}/conversations/${sessionId}/model`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        setModels(d.available || []);
-        setCurrent(d.model || d.default || '');
-      })
-      .catch(() => {});
-  }, [apiBase, sessionId, token]);
-
-  useEffect(() => {
-    function onDoc(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
-
-  async function pick(id) {
-    setCurrent(id);
-    setOpen(false);
-    try {
-      await fetch(`${apiBase}/conversations/${sessionId}/model`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ model: id }),
-      });
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const label = models.find((m) => m.id === current)?.label || current || 'Model';
-
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button
-        type="button"
-        className="composer-pill"
-        onClick={() => setOpen((v) => !v)}
-        disabled={!sessionId}
-        title="Choose model"
-        style={{ cursor: sessionId ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-      >
-        {label}
-        <ChevronDown size={13} strokeWidth={2} style={{ opacity: 0.55 }} />
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 6 }}
-            transition={{ duration: 0.14 }}
-            style={{
-              position: 'absolute',
-              bottom: 'calc(100% + 6px)',
-              left: 0,
-              minWidth: 170,
-              background: 'var(--bg-elevated, #fff)',
-              border: '1px solid var(--border, #e7e2d8)',
-              borderRadius: 10,
-              boxShadow: '0 10px 28px rgba(0,0,0,0.14)',
-              padding: 4,
-              zIndex: 50,
-            }}
-          >
-            {models.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => pick(m.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '7px 10px',
-                  borderRadius: 7,
-                  fontSize: 13,
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: m.id === current ? 'var(--bg-hover, #f3efe6)' : 'transparent',
-                  color: 'var(--text, inherit)',
-                }}
-              >
-                {m.label}
-                {m.id === current && <CircleCheck size={14} />}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
@@ -632,9 +796,14 @@ function itemIcon(kind) {
   return <Globe className="w-[16px] h-[16px]" style={{ color: 'var(--text-muted)' }} strokeWidth={1.75} />;
 }
 
+const TRACE_COLLAPSED_MAX = 172; // px — height limit before "Show more"
+
 function Trace({ entries, streaming, toolLabel, t }) {
   const [userOpen, setUserOpen] = useState(null);
-  const open = userOpen ?? streaming;
+  const [expanded, setExpanded] = useState(false);
+  const open = userOpen ?? false; // default: closed (even while streaming)
+  const scrollRef = useRef(null);
+  const [overflows, setOverflows] = useState(false);
 
   const running = entries.find((e) => e.status === 'running');
   const title = streaming
@@ -642,6 +811,19 @@ function Trace({ entries, streaming, toolLabel, t }) {
     : entries.some((e) => e.kind === 'think')
       ? t('chat.thought')
       : `${t('chat.catalogSteps')} · ${entries.length} ${t('chat.steps')}`;
+
+  // Measure whether the content is taller than the collapsed limit.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) setOverflows(el.scrollHeight > TRACE_COLLAPSED_MAX + 4);
+  }, [entries, open, expanded]);
+
+  // While running (and height-limited), keep the latest step in view.
+  useEffect(() => {
+    if (open && streaming && !expanded && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [entries, open, streaming, expanded]);
 
   return (
     <div className="text-[15px] leading-relaxed">
@@ -656,10 +838,10 @@ function Trace({ entries, streaming, toolLabel, t }) {
         <AnimatePresence mode="wait" initial={false}>
           <motion.span
             key={title}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
             className={'truncate max-w-[440px] text-[14px] leading-[24px] font-normal ' + (streaming ? 'shimmer' : '')}
           >
             {title}
@@ -682,7 +864,16 @@ function Trace({ entries, streaming, toolLabel, t }) {
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             className="overflow-hidden"
           >
-            <div className="relative pt-2.5 pb-1 pl-[30px] pr-1">
+            <div className="relative">
+              <div
+                ref={scrollRef}
+                className="trace-scroll"
+                style={{
+                  maxHeight: expanded ? 'none' : TRACE_COLLAPSED_MAX,
+                  overflowY: expanded ? 'visible' : 'auto',
+                }}
+              >
+                <div className="relative pt-2.5 pb-1 pl-[30px] pr-1">
               <span aria-hidden className="absolute left-[12px] top-[18px] bottom-[18px] w-px" style={{ background: 'var(--border-medium)' }} />
               <div className="flex flex-col gap-4 text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                 {entries.map((e, idx) => (
@@ -723,7 +914,22 @@ function Trace({ entries, streaming, toolLabel, t }) {
                   <span>{t('chat.done')}</span>
                 </div>
               )}
+              </div>
+              </div>
+              {!expanded && overflows && (
+                <div aria-hidden className="trace-fade-bottom" />
+              )}
             </div>
+            {overflows && (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="trace-show-more mt-1 ml-[30px] text-[13px] font-medium cursor-pointer transition-colors"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                {expanded ? t('chat.showLess') : t('chat.showMore')}
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

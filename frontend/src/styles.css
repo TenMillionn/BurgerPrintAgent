@@ -600,3 +600,89 @@ body {
   .chat { padding: 16px 16px; }
   .composer { padding: 10px 16px 18px; }
 }
+
+/* ── Conversation history (Sidebar) ───────────────────────────────── */
+.sidebar-history {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+  overflow: hidden;
+}
+.sidebar-history-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 6px 12px 4px;
+}
+.sidebar-history-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 6px;
+}
+.sidebar-history-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 8px 12px;
+}
+.sidebar-convo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: inherit;
+}
+.sidebar-convo:hover { background: var(--bg-sidebar-hover); }
+.sidebar-convo.is-active { background: var(--bg-sidebar-hover); }
+.sidebar-convo-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-convo-actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.sidebar-convo:hover .sidebar-convo-actions { display: flex; }
+.sidebar-convo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.sidebar-convo-btn:hover { background: var(--border-subtle); color: inherit; }
+
+/* ── Timeline (Trace) scroll + bottom fade/blur ───────────────────── */
+.trace-scroll { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+.trace-scroll::-webkit-scrollbar { width: 6px; }
+.trace-scroll::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+.trace-scroll::-webkit-scrollbar-track { background: transparent; }
+.trace-fade-bottom {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 54px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg-main));
+  -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.5px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 72%);
+  mask-image: linear-gradient(to bottom, transparent, #000 72%);
+}
+.trace-show-more:hover { color: var(--text-secondary) !important; }
