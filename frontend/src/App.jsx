@@ -13,6 +13,7 @@ import UserAdminPanel from './components/UserAdminPanel';
 import KeyModal from './components/KeyModal';
 import KeyInlineCard from './components/KeyInlineCard';
 import ChatButtons from './components/ChatButtons';
+import UploadCard from './components/UploadCard';
 import { useTranslation } from './i18n';
 
 // Web (Vite dev) dùng proxy '/api'. Extension chạy origin chrome-extension:// nên gọi
@@ -614,6 +615,12 @@ export default function App() {
     } else if (event === 'buttons') {
       // Inline clickable buttons attached to this agent turn.
       patchLast((a) => ({ ...a, buttons: [...(a.buttons || []), ...(d.buttons || [])] }));
+    } else if (event === 'upload_card') {
+      // In-chat print-file upload card attached to this agent turn.
+      patchLast((a) => ({
+        ...a,
+        uploadCards: [...(a.uploadCards || []), { side: d.side, ref: d.ref }],
+      }));
     } else if (event === 'error') {
       patchLast((a) => ({ ...a, text: a.text + `\n\n⚠️ ${d.message || t('status.error')}` }));
     }
@@ -833,9 +840,23 @@ export default function App() {
                     onSaved={() => send('Setup BurgerPrint apikey done')}
                   />
                 )}
-                {m.buttons && (
+                {/* Buttons only on the agent's LAST message: once the seller clicks a
+                    (non-link) button or types, a newer message exists → decision made,
+                    so the stale buttons disappear. Link clicks add no message → they stay. */}
+                {m.buttons && i === messages.length - 1 && (
                   <ChatButtons buttons={m.buttons} onMessage={(text) => send(text)} />
                 )}
+                {(m.uploadCards || []).map((c, ci) => (
+                  <UploadCard
+                    key={ci}
+                    apiFetch={apiFetch}
+                    t={t}
+                    side={c.side}
+                    refId={c.ref}
+                    conversationId={sessionId}
+                    onUploaded={(side) => send(`Upload ${side} success`)}
+                  />
+                ))}
               </div>
             ),
           )}

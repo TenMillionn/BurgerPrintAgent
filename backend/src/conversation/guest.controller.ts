@@ -87,6 +87,8 @@ export class GuestController {
         return { action: chunk.action, message: chunk.message };
       case 'buttons':
         return { buttons: chunk.buttons };
+      case 'upload_card':
+        return { side: chunk.side, ref: chunk.ref };
       case 'error':
         return { code: chunk.code, message: chunk.message };
       case 'done':

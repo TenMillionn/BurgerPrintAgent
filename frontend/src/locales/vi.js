@@ -73,6 +73,15 @@ const vi = {
   common: {
     close: 'Đóng',
   },
+  design: {
+    uploadFront: 'Tải file in mặt trước',
+    uploadBack: 'Tải file in mặt sau',
+    choose: 'Chọn file',
+    upload: 'Tải lên',
+    uploading: 'Đang tải lên…',
+    uploaded: 'Đã tải lên',
+    error: 'Tải lên thất bại',
+  },
   tools: {
     search_products: 'Tìm sản phẩm',
     compare_factories: 'So sánh xưởng',
@@ -95,6 +104,10 @@ const vi = {
     cancel_order: 'Hủy đơn',
     delete_order: 'Xóa đơn',
     render_buttons: 'Hiện lựa chọn',
+    request_design_upload: 'Yêu cầu tải file',
+    validate_design: 'Kiểm tra file in',
+    process_design: 'Tự resize/crop',
+    list_design_assets: 'Danh sách file thiết kế',
     search_history: 'Tìm trong lịch sử',
     retrieve_knowledge: 'Tra cứu kiến thức',
     fetch_url: 'Đọc trang web',

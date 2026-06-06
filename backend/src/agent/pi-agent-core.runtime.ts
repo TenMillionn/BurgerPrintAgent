@@ -9,6 +9,7 @@ import { AgentRuntime } from './agent-runtime.port';
 import { AgentChunk, AgentRunInput } from './agent.types';
 import { BurgerPrintToolService } from 'src/burgerprints/burgerprints-tool.service';
 import { UserKeyService } from '../users/user-key.service';
+import { DesignAssetService } from '../design/design-asset.service';
 
 /**
  * Adapter around `@earendil-works/pi-agent-core` (the "Pi" toolkit by earendil-works,
@@ -46,6 +47,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     private readonly knowledge: KnowledgeService,
     private readonly webFetch: WebFetchService,
     private readonly userKey: UserKeyService,
+    private readonly designAssets: DesignAssetService,
   ) {}
 
   /**
@@ -75,6 +77,29 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       };
     }
     return { apiKey: key };
+  }
+
+  /**
+   * Resolve the design image URL for an order side: an explicit asset id (from the
+   * chooser) wins, otherwise the latest VALID upload for the side. Returns undefined
+   * when none — create_order then blocks the real order (MISSING_DESIGN).
+   */
+  private async resolveDesignUrl(
+    input: AgentRunInput,
+    side: 'front' | 'back',
+    assetId?: string,
+  ): Promise<string | undefined> {
+    if (!input.userId) return undefined;
+    if (assetId) {
+      const a = await this.designAssets.findById(assetId, input.userId);
+      return a?.url;
+    }
+    const a = await this.designAssets.latestValid(
+      input.sessionId,
+      input.userId,
+      side,
+    );
+    return a?.url;
   }
 
   async *run(input: AgentRunInput): AsyncIterable<AgentChunk> {
@@ -243,6 +268,14 @@ export class PiAgentCoreRuntime implements AgentRuntime {
             Array.isArray((details as any).buttons)
           ) {
             push({ type: 'buttons', buttons: (details as any).buttons });
+          }
+          // request_design_upload → in-chat upload card attached to this turn.
+          if ((details as any)?.render === 'upload_card') {
+            push({
+              type: 'upload_card',
+              side: (details as any).side,
+              ref: (details as any).ref,
+            });
           }
           break;
         }
@@ -444,6 +477,33 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     ) {
       count = details.buttons.length;
       items = details.buttons.map((b: any) => ({ title: b.label }));
+    } else if (toolName === 'request_design_upload') {
+      items = [{ title: 'Upload card', meta: details.side }];
+    } else if (toolName === 'validate_design' && details.width) {
+      items = [
+        {
+          title: details.valid ? 'Valid' : 'Invalid',
+          meta: `${details.width}×${details.height}`,
+        },
+      ];
+    } else if (
+      toolName === 'process_design' &&
+      Array.isArray(details.processed)
+    ) {
+      count = details.processed.length;
+      items = details.processed.map((a: any) => ({
+        title: a.side,
+        meta: `${a.width}×${a.height}`,
+      }));
+    } else if (
+      toolName === 'list_design_assets' &&
+      Array.isArray(details.assets)
+    ) {
+      count = details.assets.length;
+      items = details.assets.map((a: any) => ({
+        title: a.side,
+        meta: `${a.width}×${a.height}${a.valid ? '' : ' (invalid)'}`,
+      }));
     } else if (toolName === 'cancel_order' || toolName === 'delete_order') {
       const ok = details.result?.is_success ?? !details.error;
       items = [
@@ -591,11 +651,16 @@ export class PiAgentCoreRuntime implements AgentRuntime {
             properties: {
               catalog_sku: { type: 'string' },
               quantity: { type: 'number' },
-              design_url_front: {
+              design_asset_id_front: {
                 type: 'string',
-                description: 'Public design URL (required for a real order)',
+                description:
+                  'Front design asset id to use (from list_design_assets). Omit to use the latest valid front upload.',
               },
-              design_url_back: { type: 'string' },
+              design_asset_id_back: {
+                type: 'string',
+                description:
+                  'Back design asset id (omit to use the latest valid back upload)',
+              },
               mockup_url_front: { type: 'string' },
               mockup_url_back: { type: 'string' },
             },
@@ -626,9 +691,34 @@ export class PiAgentCoreRuntime implements AgentRuntime {
               return this.createdOrders.get(referenceOrderId);
             }
           }
+          // Resolve design URLs from the conversation's design assets: an explicit
+          // asset id (chooser) wins, else the latest VALID upload for the side.
+          const it = p.item ?? {};
+          const designUrl = await this.resolveDesignUrl(
+            input,
+            'front',
+            it.design_asset_id_front,
+          );
+          const designUrlBack = await this.resolveDesignUrl(
+            input,
+            'back',
+            it.design_asset_id_back,
+          );
+          const item = {
+            catalog_sku: it.catalog_sku,
+            quantity: it.quantity,
+            ...(designUrl ? { design_url_front: designUrl } : {}),
+            ...(designUrlBack ? { design_url_back: designUrlBack } : {}),
+            ...(it.mockup_url_front
+              ? { mockup_url_front: it.mockup_url_front }
+              : {}),
+            ...(it.mockup_url_back
+              ? { mockup_url_back: it.mockup_url_back }
+              : {}),
+          };
           const res = await this.burgerPrintToolService.createOrder({
             shipping: p.shipping,
-            item: p.item,
+            item,
             shipping_label: p.shipping_label,
             sandbox,
             reference_order_id: referenceOrderId,
@@ -819,6 +909,162 @@ export class PiAgentCoreRuntime implements AgentRuntime {
             })
             .filter((b: any) => b.label && b.value);
           return Promise.resolve({ render: 'buttons', buttons });
+        },
+      ),
+      tool(
+        'request_design_upload',
+        'Render an in-chat upload card so the seller can upload a print file (design). ' +
+          'ALWAYS call this when you need a design file — never just ask for it in text. ' +
+          'Render one card per side you need (front; back only if the back is printed).',
+        {
+          side: {
+            type: 'string',
+            enum: ['front', 'back'],
+            description: 'Which print side this file is for',
+          },
+        },
+        ['side'],
+        (p) => {
+          const side = p.side === 'back' ? 'back' : 'front';
+          const ref = `upload-${input.sessionId}-${input.history.length}-${side}`;
+          return Promise.resolve({ render: 'upload_card', side, ref });
+        },
+      ),
+      tool(
+        'validate_design',
+        'Check whether an uploaded design file is a valid factory print resolution. ' +
+          'Defaults to the most recent upload for the side. If invalid, tell the seller, ' +
+          'offer auto resize/crop, and call render_buttons with a "Process now" button.',
+        {
+          side: {
+            type: 'string',
+            enum: ['front', 'back'],
+            description: 'Default front',
+          },
+          image_id: {
+            type: 'string',
+            description: 'Specific asset id (optional)',
+          },
+        },
+        [],
+        async (p) => {
+          if (!input.userId)
+            return {
+              requires: 'login',
+              message: 'Please log in to manage design files',
+            };
+          const side = p.side === 'back' ? 'back' : 'front';
+          const asset = p.image_id
+            ? await this.designAssets.findById(p.image_id, input.userId)
+            : await this.designAssets.latest(
+                input.sessionId,
+                input.userId,
+                side,
+              );
+          if (!asset)
+            return {
+              error: true,
+              code: 'NO_DESIGN',
+              message: `No ${side} design uploaded yet`,
+            };
+          return {
+            valid: asset.valid,
+            width: asset.width,
+            height: asset.height,
+            side: asset.side,
+            image_id: String(asset._id),
+          };
+        },
+      ),
+      tool(
+        'process_design',
+        'Auto resize/crop invalid design file(s) to a valid factory resolution and return the ' +
+          'corrected image(s). Pass front_image_id and/or back_image_id (defaults to the latest ' +
+          'upload per side). Show each returned image to the seller as a markdown image.',
+        {
+          front_image_id: {
+            type: 'string',
+            description: 'Front asset id (optional)',
+          },
+          back_image_id: {
+            type: 'string',
+            description: 'Back asset id (optional)',
+          },
+        },
+        [],
+        async (p) => {
+          if (!input.userId)
+            return {
+              requires: 'login',
+              message: 'Please log in to process design files',
+            };
+          const ids: string[] = [];
+          if (p.front_image_id) ids.push(p.front_image_id);
+          if (p.back_image_id) ids.push(p.back_image_id);
+          if (ids.length === 0) {
+            const front = await this.designAssets.latest(
+              input.sessionId,
+              input.userId,
+              'front',
+            );
+            const back = await this.designAssets.latest(
+              input.sessionId,
+              input.userId,
+              'back',
+            );
+            if (front && !front.valid) ids.push(String(front._id));
+            if (back && !back.valid) ids.push(String(back._id));
+          }
+          if (ids.length === 0)
+            return {
+              error: true,
+              code: 'NOTHING_TO_PROCESS',
+              message: 'No invalid design to process',
+            };
+          const processed = [];
+          for (const id of ids) {
+            try {
+              const a = await this.designAssets.process(id, input.userId);
+              processed.push({
+                side: a.side,
+                image_id: a.image_id,
+                url: a.url,
+                width: a.width,
+                height: a.height,
+              });
+            } catch (e) {
+              this.logger.error(
+                `process_design failed for ${id}: ${(e as Error).message}`,
+              );
+            }
+          }
+          if (processed.length === 0)
+            return {
+              error: true,
+              code: 'PROCESS_FAILED',
+              message: 'Could not process the design',
+            };
+          return { processed };
+        },
+      ),
+      tool(
+        'list_design_assets',
+        'List the design files uploaded in this conversation (newest first) so the seller can ' +
+          'pick which one to order with. Use when the seller says the default image is not the right one.',
+        {},
+        [],
+        async () => {
+          if (!input.userId)
+            return {
+              requires: 'login',
+              message: 'Please log in to view design files',
+            };
+          return {
+            assets: await this.designAssets.listByConversation(
+              input.sessionId,
+              input.userId,
+            ),
+          };
         },
       ),
       tool(
@@ -1038,7 +1284,8 @@ export function defaultSystemPrompt(): string {
     `ORDER FLOW (placing & paying for an order — follow EXACTLY, never skip a gate):`,
     `- GATE 0 (auth): BEFORE collecting any order info, call check_auth. If not logged in, STOP and ask the seller to log in (a login prompt appears automatically). Do not collect SKU/design/address from a guest.`,
     `- STEP A (SKU): use search_products → get_product_variants to settle the exact catalog_sku + quantity; never order an out-of-stock SKU.`,
-    `- STEP B (design): call get_decorations to tell the seller the artwork/file requirements, then have them attach a design image. You need a public design_url_front (design_url_back only if printing the back) before a real order.`,
+    `- STEP B (design / print file): you MUST call request_design_upload(side) to show an upload card — never just ask for the file in text (front; back only if the back is printed). After the seller uploads, call validate_design. If it is NOT a valid print resolution, tell the seller, offer auto resize/crop, and call render_buttons with a "Process now" button; when they confirm, call process_design and show the corrected image(s) as markdown. A real order needs a valid front print file.`,
+    `- DESIGN SELECTION: ordering uses the latest valid uploaded image per side automatically (you don't need to pass URLs). If the seller says that's not the right image, call list_design_assets and offer the options with render_buttons; pass the chosen design_asset_id_front/back to create_order.`,
     `- STEP C (address): collect shipping name/address1/city/state/zip/country (2-letter state for US, 2-letter country code). Re-ask for any missing/invalid field; never invent address data.`,
     `- STEP D (DRAFT): call create_order with sandbox=true to preview cost. Show the seller base cost + shipping fee + total. This is NOT a real order.`,
     `- GATE KEY: before a real order, call require_seller_key. If no key, STOP and ask the seller to add their BurgerPrints API key in settings (a settings prompt appears automatically).`,
@@ -1152,6 +1399,22 @@ export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   {
     name: 'render_buttons',
     desc: 'Render clickable buttons in chat (quick replies / links). Used e.g. after creating an order to show an "Open on dashboard" link button.',
+  },
+  {
+    name: 'request_design_upload',
+    desc: 'Render an in-chat upload card for a print file (front/back). Always used instead of asking for a design in text.',
+  },
+  {
+    name: 'validate_design',
+    desc: 'Check an uploaded design file against the allowed factory print resolutions; if invalid, offer auto resize/crop.',
+  },
+  {
+    name: 'process_design',
+    desc: 'Auto resize/crop invalid design file(s) to a valid factory resolution and return the corrected image(s).',
+  },
+  {
+    name: 'list_design_assets',
+    desc: "List the conversation's uploaded design files (newest first) so the seller can pick which one to order with.",
   },
   {
     name: 'search_history',
