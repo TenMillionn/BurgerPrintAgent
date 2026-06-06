@@ -105,4 +105,15 @@ export class UsersService {
       .updateOne({ _id: userId }, { $set: { lastLoginAt: new Date() } })
       .exec();
   }
+
+  /** Promote a user (by email) to the admin role. Returns false if not found. */
+  async promoteToAdmin(email: string): Promise<boolean> {
+    const res = await this.userModel
+      .updateOne(
+        { email: email.toLowerCase().trim() },
+        { $set: { role: 'admin' } },
+      )
+      .exec();
+    return res.matchedCount > 0;
+  }
 }
