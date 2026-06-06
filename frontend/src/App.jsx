@@ -9,6 +9,7 @@ import { ArrowUp, ChevronDown, CircleCheck, Clock, Globe, PanelLeftOpen, Plus, S
 import WelcomeModal from './components/WelcomeModal';
 import Sidebar from './components/Sidebar';
 import KnowledgePanel from './components/KnowledgePanel';
+import UserAdminPanel from './components/UserAdminPanel';
 import { useTranslation } from './i18n';
 
 // Web (Vite dev) dùng proxy '/api'. Extension chạy origin chrome-extension:// nên gọi
@@ -99,6 +100,7 @@ export default function App() {
   const [showModal, setShowModal] = useState(!savedAuth?.token);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
   const [conversations, setConversations] = useState([]);
   const scrollRef = useRef(null);
   const taRef = useRef(null);
@@ -591,11 +593,21 @@ export default function App() {
           onDelete={deleteConversation}
           isAdmin={isAdmin}
           onOpenKnowledge={() => setShowKnowledge(true)}
+          onOpenUsers={() => setShowUsers(true)}
         />
       )}
 
       {showKnowledge && (
         <KnowledgePanel apiFetch={apiFetch} t={t} onClose={() => setShowKnowledge(false)} />
+      )}
+
+      {showUsers && (
+        <UserAdminPanel
+          apiFetch={apiFetch}
+          t={t}
+          currentUserId={auth?.user?.id}
+          onClose={() => setShowUsers(false)}
+        />
       )}
 
       {/* Mobile overlay when sidebar is open */}

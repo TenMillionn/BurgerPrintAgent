@@ -50,6 +50,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is disabled');
+    }
+
     if (this.usersService.isLocked(user)) {
       const remainingTime = Math.ceil(
         (user.lockUntil!.getTime() - Date.now()) / 1000 / 60,

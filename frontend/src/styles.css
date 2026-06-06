@@ -779,3 +779,33 @@ body {
 }
 .kb-icon-btn:hover { opacity: 1; }
 .kb-icon-btn.kb-danger { color: #dc2626; border-color: #fecaca; }
+
+/* ── User management panel ─────────────────────────────────────── */
+.um-modal { width: min(680px, 100%); }
+.um-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.um-item {
+  display: flex; align-items: center; gap: 11px; padding: 11px 12px;
+  border: 1px solid var(--border, #eee); border-radius: 11px;
+}
+.um-item.um-disabled { opacity: 0.55; }
+.um-avatar {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--chip-bg, #eef0f3); color: var(--text, #555);
+}
+.um-main { flex: 1; min-width: 0; }
+.um-email { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.um-you { font-size: 10.5px; font-weight: 600; color: var(--accent, #ff6b35); }
+.um-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 3px; font-size: 11.5px; }
+.um-dim { opacity: 0.55; }
+.um-badge { font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 20px; text-transform: capitalize; }
+.um-admin { background: #ede9fe; color: #6d28d9; }
+.um-user { background: #eef0f3; color: #555; }
+.um-off { background: #fee2e2; color: #b91c1c; }
+.um-actions { display: flex; gap: 3px; flex-shrink: 0; }
+.um-actions button {
+  background: none; border: none; cursor: pointer; color: inherit; opacity: 0.6; padding: 6px; border-radius: 7px;
+}
+.um-actions button:hover:not(:disabled) { opacity: 1; background: var(--chip-bg, #f0f0f3); }
+.um-actions button:disabled { opacity: 0.2; cursor: default; }
+.um-actions .um-danger:hover:not(:disabled) { color: #dc2626; }
