@@ -35,6 +35,25 @@ export class ConversationService {
     }
   }
 
+  // ── Model override theo phiên (Redis) ────────────────────────────────
+  private modelKey(sessionId: string): string {
+    return `session:${sessionId}:model`;
+  }
+  async getModel(sessionId: string): Promise<string | null> {
+    return this.redis.get(this.modelKey(sessionId));
+  }
+  async setModel(sessionId: string, model: string | null): Promise<void> {
+    if (model && model.trim()) {
+      await this.redis.setEx(
+        this.modelKey(sessionId),
+        model.trim(),
+        7 * 24 * 3600,
+      );
+    } else {
+      await this.redis.del(this.modelKey(sessionId));
+    }
+  }
+
   async createConversation(
     userId: string,
     language: Language | null,
@@ -68,6 +87,7 @@ export class ConversationService {
     const session = await this.sessions.getSessionOrThrow(sessionId);
     const history = await this.sessions.getContextTurns(sessionId);
     const systemPrompt = (await this.getSystemPrompt(sessionId)) ?? undefined;
+    const model = (await this.getModel(sessionId)) ?? undefined;
 
     let assembled = '';
     let errored = false;
@@ -79,6 +99,7 @@ export class ConversationService {
         language: session.language,
         history,
         systemPrompt,
+        model,
       })) {
         if (chunk.type === 'token') assembled += chunk.text;
         if (chunk.type === 'error') errored = true;

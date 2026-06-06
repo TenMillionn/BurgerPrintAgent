@@ -49,4 +49,6 @@ export interface AgentRunInput {
   history: ConversationTurn[];
   /** System prompt custom do seller chỉnh (rỗng → dùng mặc định). */
   systemPrompt?: string;
+  /** Model id override cho phiên (rỗng → dùng LLM_MODEL trong env). */
+  model?: string;
 }

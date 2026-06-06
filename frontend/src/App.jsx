@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowUp, ChevronDown, CircleCheck, Clock, Globe, PanelLeftOpen, Plus } from 'lucide-react';
+import { ArrowUp, ChevronDown, CircleCheck, Clock, Globe, PanelLeftOpen, Plus, Sparkles } from 'lucide-react';
 import WelcomeModal from './components/WelcomeModal';
 import Sidebar from './components/Sidebar';
 import { useTranslation } from './i18n';
@@ -12,6 +15,15 @@ import { useTranslation } from './i18n';
 const isExtension =
   typeof location !== 'undefined' && location.protocol === 'chrome-extension:';
 const DEFAULT_API = isExtension ? 'http://localhost:3000' : '/api';
+
+// Chuẩn hoá LaTeX: \[ \] và \( \) → $$ $$ để remark-math (đã tắt single-$) render được.
+// KHÔNG đụng tới '$' đơn (tiền tệ $25) → tránh nuốt chữ thành công thức.
+function normalizeMath(text) {
+  if (!text) return text;
+  return text
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, m) => `\n\n$$${m.trim()}$$\n\n`)
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => `$$${m.trim()}$$`);
+}
 
 // Custom markdown components: link mở tab mới
 const MARKDOWN_COMPONENTS = {
@@ -436,7 +448,7 @@ export default function App() {
               <button className="composer-plus" type="button" title={t('composer.attach')} disabled>
                 <Plus size={18} strokeWidth={2} />
               </button>
-              <span className="composer-pill">{t('composer.model')}</span>
+              <ModelSelector apiBase={apiBase} sessionId={sessionId} token={token} />
               <div className="composer-spacer" />
               <button
                 className="composer-send"
@@ -450,6 +462,114 @@ export default function App() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─── Model Selector (settings: chọn model cho phiên) ─── */
+function ModelSelector({ apiBase, sessionId, token }) {
+  const [models, setModels] = useState([]);
+  const [current, setCurrent] = useState('');
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!sessionId || !token) return;
+    fetch(`${apiBase}/conversations/${sessionId}/model`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        setModels(d.available || []);
+        setCurrent(d.model || d.default || '');
+      })
+      .catch(() => {});
+  }, [apiBase, sessionId, token]);
+
+  useEffect(() => {
+    function onDoc(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  async function pick(id) {
+    setCurrent(id);
+    setOpen(false);
+    try {
+      await fetch(`${apiBase}/conversations/${sessionId}/model`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ model: id }),
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const label = models.find((m) => m.id === current)?.label || current || 'Model';
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className="composer-pill"
+        onClick={() => setOpen((v) => !v)}
+        disabled={!sessionId}
+        title="Choose model"
+        style={{ cursor: sessionId ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+      >
+        {label}
+        <ChevronDown size={13} strokeWidth={2} style={{ opacity: 0.55 }} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            transition={{ duration: 0.14 }}
+            style={{
+              position: 'absolute',
+              bottom: 'calc(100% + 6px)',
+              left: 0,
+              minWidth: 170,
+              background: 'var(--bg-elevated, #fff)',
+              border: '1px solid var(--border, #e7e2d8)',
+              borderRadius: 10,
+              boxShadow: '0 10px 28px rgba(0,0,0,0.14)',
+              padding: 4,
+              zIndex: 50,
+            }}
+          >
+            {models.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => pick(m.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '7px 10px',
+                  borderRadius: 7,
+                  fontSize: 13,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: m.id === current ? 'var(--bg-hover, #f3efe6)' : 'transparent',
+                  color: 'var(--text, inherit)',
+                }}
+              >
+                {m.label}
+                {m.id === current && <CircleCheck size={14} />}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -493,8 +613,12 @@ function AssistantMessage({ msg, streaming, toolLabel, t }) {
       )}
       {msg.text && (
         <div className="chat-markdown max-w-full break-words">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-            {msg.text}
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
+            rehypePlugins={[rehypeKatex]}
+            components={MARKDOWN_COMPONENTS}
+          >
+            {normalizeMath(msg.text)}
           </ReactMarkdown>
         </div>
       )}
@@ -524,26 +648,25 @@ function Trace({ entries, streaming, toolLabel, t }) {
       <button
         type="button"
         onClick={() => setUserOpen((v) => (v == null ? !open : !v))}
-        className="group cursor-pointer flex items-center gap-1.5 w-full px-0.5 py-0.5 rounded text-left transition-colors"
+        className="group cursor-pointer inline-flex items-center gap-1.5 max-w-full px-1 py-0.5 rounded text-left transition-colors"
         style={{ color: 'var(--text-muted)' }}
         aria-expanded={open}
       >
-        <span className="flex-1 min-w-0 relative h-[24px] overflow-hidden block">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.span
-              key={title}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              className={'block absolute inset-0 truncate text-[14px] leading-[24px] font-normal ' + (streaming ? 'shimmer' : '')}
-            >
-              {title}
-            </motion.span>
-          </AnimatePresence>
-        </span>
+        <Sparkles className="w-[14px] h-[14px] flex-none" strokeWidth={1.75} />
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={title}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className={'truncate max-w-[440px] text-[14px] leading-[24px] font-normal ' + (streaming ? 'shimmer' : '')}
+          >
+            {title}
+          </motion.span>
+        </AnimatePresence>
         <ChevronDown
-          className={'w-4 h-4 flex-shrink-0 transition-transform duration-200 ' + (!open ? '-rotate-90' : '')}
+          className={'w-4 h-4 flex-none transition-transform duration-200 ' + (!open ? '-rotate-90' : '')}
           style={{ color: 'var(--text-muted)' }}
           strokeWidth={2}
         />

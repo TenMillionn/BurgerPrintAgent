@@ -16,6 +16,7 @@ import { AgentChunk } from '../agent/agent.types';
 import {
   defaultSystemPrompt,
   AGENT_TOOLS_INFO,
+  AVAILABLE_MODELS,
 } from '../agent/pi-agent-core.runtime';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
@@ -77,6 +78,37 @@ export class ConversationController {
     );
     const usingDefault = !(body?.systemPrompt && body.systemPrompt.trim());
     return { ok: true, usingDefault };
+  }
+
+  /** Lấy model hiện tại của phiên + danh sách model chọn được. */
+  @ApiAuth({ summary: 'Get conversation model' })
+  @Get(':sessionId/model')
+  async getModel(@Param('sessionId') sessionId: string): Promise<{
+    model: string | null;
+    default: string;
+    available: Array<{ id: string; label: string }>;
+  }> {
+    const custom = await this.conversation.getModel(sessionId);
+    return {
+      model: custom,
+      default: process.env.LLM_MODEL ?? '',
+      available: AVAILABLE_MODELS,
+    };
+  }
+
+  /** Đặt/đổi model cho phiên (rỗng = về model mặc định trong env). */
+  @ApiAuth({ summary: 'Set conversation model' })
+  @Put(':sessionId/model')
+  async setModel(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { model?: string },
+  ): Promise<{ ok: boolean; model: string | null }> {
+    await this.conversation.setModel(sessionId, body?.model ?? null);
+    return {
+      ok: true,
+      model:
+        (body?.model && body.model.trim()) || (process.env.LLM_MODEL ?? null),
+    };
   }
 
   /**

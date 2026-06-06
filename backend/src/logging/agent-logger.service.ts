@@ -58,7 +58,7 @@ export class AgentLogger {
         JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
       await appendFile(this.file, line);
     } catch (e) {
-      this.logger.warn(`Ghi agent log thất bại: ${(e as Error).message}`);
+      this.logger.warn(`Failed to write agent log: ${(e as Error).message}`);
     }
   }
 

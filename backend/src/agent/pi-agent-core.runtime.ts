@@ -54,19 +54,22 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ({ getModel } = await esmImport('@earendil-works/pi-ai'));
     } catch (err) {
       this.logger.error(
-        `Không tải được pi-agent-core: ${(err as Error).message}`,
+        `Failed to load pi-agent-core: ${(err as Error).message}`,
       );
       yield {
         type: 'error',
         code: 'AGENT_RUNTIME_UNAVAILABLE',
         message:
-          'pi-agent-core chưa cài. Chạy `npm i @earendil-works/pi-agent-core @earendil-works/pi-ai`.',
+          'pi-agent-core is not installed. Run `npm i @earendil-works/pi-agent-core @earendil-works/pi-ai`.',
       };
       return;
     }
 
     const provider = this.config.get<string>('llm.provider') as string;
-    const modelId = this.config.get<string>('llm.model') as string;
+    // Model override theo phiên (nếu seller chọn) → fallback LLM_MODEL trong env.
+    const modelId =
+      (input.model && input.model.trim()) ||
+      (this.config.get<string>('llm.model') as string);
 
     let agent: any;
     try {
@@ -84,7 +87,17 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         model.baseUrl = openaiBaseUrl;
         model.api = 'openai-completions';
       } else {
-        model = getModel(provider, modelId);
+        try {
+          model = getModel(provider, modelId);
+        } catch {
+          // modelId không có trong registry pi-ai (vd model mới: "gpt-5.4") →
+          // dựng từ template gpt-4o rồi override id; endpoint OpenAI tự nhận id.
+          this.logger.warn(
+            `Model "${modelId}" not in pi-ai registry — building from gpt-4o template.`,
+          );
+          model = getModel('openai', 'gpt-4o');
+          model.id = modelId;
+        }
       }
 
       agent = new Agent({
@@ -97,7 +110,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         },
       });
     } catch (err) {
-      this.logger.error(`Khởi tạo pi Agent lỗi: ${(err as Error).message}`);
+      this.logger.error(`pi Agent init failed: ${(err as Error).message}`);
       yield {
         type: 'error',
         code: 'AGENT_INIT_ERROR',
@@ -466,6 +479,73 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           this.burgerprints.getShipping(p.short_code, p.partner_id, p.country),
       ),
       tool(
+        'get_size_chart',
+        'Size chart (measurements per size: e.g. Length, Bust in inch + cm) + a size-guide image URL, ' +
+          'for ONE product. Use when the seller asks about sizing/measurements/fit.',
+        {
+          short_code: {
+            type: 'string',
+            description:
+              'Product short_code, e.g. "USG5000" (from search_products)',
+          },
+        },
+        ['short_code'],
+        (p) => this.burgerprints.getSizeChart(p.short_code),
+      ),
+      tool(
+        'get_product_detail',
+        'Overview of ONE product (scalar fields): description, base cost range, print sides ' +
+          '(front/back/sleeve), processing/production time, shipping summary (US/worldwide time + carriers), ' +
+          'mockup image, color/size/factory counts. Call AFTER picking a product; use the dedicated array ' +
+          'tools (get_product_colors, get_decorations, get_size_chart, compare_factories, get_product_variants, get_shipping) for details.',
+        {
+          short_code: {
+            type: 'string',
+            description:
+              'Product short_code, e.g. "USG5000" (from search_products)',
+          },
+        },
+        ['short_code'],
+        (p) => this.burgerprints.getProductDetail_card(p.short_code),
+      ),
+      tool(
+        'get_product_colors',
+        'Full color list of ONE product (name + hex code). Use for "what colors are available" or to show swatches.',
+        {
+          short_code: {
+            type: 'string',
+            description: 'Product short_code (from search_products)',
+          },
+        },
+        ['short_code'],
+        (p) => this.burgerprints.getProductColors(p.short_code),
+      ),
+      tool(
+        'get_decorations',
+        'Print techniques/locations of ONE product (DTG / DTF / Sleeve Print) + design-file requirements ' +
+          '(file format, size, DPI) and color-profile guideline. Use for "which print method", "can it print on the back/sleeve", "what file do I need".',
+        {
+          short_code: {
+            type: 'string',
+            description: 'Product short_code (from search_products)',
+          },
+        },
+        ['short_code'],
+        (p) => this.burgerprints.getDecorations(p.short_code),
+      ),
+      tool(
+        'get_related_products',
+        'Related/suggested products for ONE product (alternatives, upsell). Returns short_code + name.',
+        {
+          short_code: {
+            type: 'string',
+            description: 'Product short_code (from search_products)',
+          },
+        },
+        ['short_code'],
+        (p) => this.burgerprints.getRelatedProducts(p.short_code),
+      ),
+      tool(
         'calculate_margin',
         'Compute margin PRECISELY for one or more products (deterministic). Do NOT do the math yourself. ' +
           'Margin% = (sell − base − shipping)/sell × 100. Pass shipping_cost ONLY when you have a real number ' +
@@ -534,7 +614,7 @@ export function defaultSystemPrompt(): string {
     `LANGUAGE: Always reply in the SAME language as the seller's latest message (auto-detect). Be concise and decision-ready; use compact markdown tables when comparing.`,
     ``,
     `TOOLS & WORKFLOW:`,
-    `1. search_products(category, market?, max_base_cost?) → products by type/FEATURE in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. category is full-text over name + description, so you can search by material ("cotton", "ring-spun"), print technique ("DTG"/"DTF") or feature ("long sleeve", "fleece"). Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category. IMPORTANT: if the seller names a SPECIFIC product/model (e.g. "Bella + Canvas 3001", "Gildan 18600"), pass that exact name as category (matching is token/punctuation-insensitive) — do NOT search the generic type, because results are sorted by price and capped, so a specific (pricier) model would be hidden. If total_matched > products returned and you don't see the named product, refine the keyword before concluding it doesn't exist.`,
+    `1. search_products(category, market?, max_base_cost?) → products by type/FEATURE in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. category is full-text over name + description, so you can search by material ("cotton", "ring-spun"), print technique ("DTG"/"DTF") or feature ("long sleeve", "fleece"). Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category. IMPORTANT: if the seller names a SPECIFIC product/model (e.g. "Bella + Canvas 3001", "Gildan 18600"), pass that exact name as category (matching is token/punctuation-insensitive) — do NOT search the generic type, because results are sorted by price and capped, so a specific (pricier) model would be hidden. If total_matched > products returned and you don't see the named product, refine the keyword before concluding it doesn't exist. LANGUAGE: the catalog is in ENGLISH — category MUST be an English keyword. Translate the seller's word (e.g. Vietnamese "áo" → "t-shirt"/"shirt", "áo khoác/hoodie" → "hoodie", "quần" → "pants"). If the product type is generic or unclear, OMIT category and filter by max_base_cost only (then summarise the cheapest options) — never pass a non-English word as category.`,
     `2. compare_factories(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use after a specific product is chosen, to compare factories or for margin.`,
     `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price, in_stock) for a product. Use for specific color/size or before ordering.`,
     `4. create_order(shipping, items, sandbox?) → place a fulfillment order. Default sandbox=true (test). ONLY after the seller confirms SKU + quantity + shipping address.`,
@@ -555,13 +635,34 @@ export function defaultSystemPrompt(): string {
     `MARGIN: To compute margin you MUST call calculate_margin (do NOT do the arithmetic yourself — it has been wrong). Pass an items array with ONE entry PER product you are presenting, where base_cost is THAT product's real base_cost from the search_products result (e.g. 5.10, 7.25, 7.40) — NOT a budget cap/threshold/rounded number, and not a single placeholder. shipping_cost: include ONLY if you got a real number from get_shipping; otherwise omit it → base-only margin, state the caveat. Never assume/guess a shipping number. For "min margin X% at sell price P", max allowed base cost = P × (1 − X/100) — compute that and call search_products(max_base_cost=that), then still call calculate_margin with each product's real base_cost to show the actual margin.`,
     ``,
     `BEHAVIOR:`,
-    `- Vague query ("I want to sell shirts") → ask 1-2 clarifying questions (market? product type? target price?).`,
+    `- ACT FIRST, refine later: if the query has anything actionable (a price, a margin, a product type, a budget), call the tools and SHOW results immediately, then offer to narrow (e.g. by market/type). Do NOT block with clarifying questions when you can already search. Example: "sell shirts at $25 with 40% margin" → compute max base cost ($15), search_products(category:"t-shirt", max_base_cost:15), show products with margins — THEN ask if they want a specific market/type.`,
+    `- Only ask a clarifying question when the query is truly empty of actionable info ("I want to sell something") — at most 1 short question, and still suggest a default.`,
+    `- FORMATTING: GitHub-Markdown. Money uses a plain "$" (e.g. $15) — NEVER write a single "$" as a math delimiter. For a formula use a block: $$ ... $$ (or \\[ ... \\], which the UI converts). Inside a formula use SHORT ASCII labels only (e.g. $$ MaxBaseCost = 25 \\times (1 - 0.40) = 15 $$) — do NOT put full Vietnamese/English sentences or accented words inside \\text{} (KaTeX renders them garbled). Often a one-line plain-text formula is clearest: "max base cost = 25 × (1 − 0.40) = $15".`,
     `- No match → relax the filter and suggest the closest options; never return empty-handed silently.`,
     `- Out-of-scope question → politely redirect to the BurgerPrints POD catalog.`,
     `- NEVER invent catalog data, prices, factories or SKUs. If a tool returns an error, tell the seller you couldn't fetch the data.`,
     `- After answering, suggest a helpful next step.`,
   ].join('\n');
 }
+
+/**
+ * Danh sách model cho FE chọn. Override qua env LLM_AVAILABLE_MODELS
+ * (vd "gpt-4o,gpt-4o-mini,claude-sonnet-4-5"). Lưu ý: model phải hợp lệ với
+ * provider đang cấu hình (LLM_PROVIDER) — nếu không sẽ lỗi khi chạy.
+ */
+export const AVAILABLE_MODELS: Array<{ id: string; label: string }> = process
+  .env.LLM_AVAILABLE_MODELS
+  ? process.env.LLM_AVAILABLE_MODELS.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((id) => ({ id, label: id }))
+  : [
+      { id: 'gpt-4o', label: 'GPT-4o' },
+      { id: 'gpt-4o-mini', label: 'GPT-4o mini' },
+      { id: 'gpt-4.1', label: 'GPT-4.1' },
+      { id: 'gpt-4.1-mini', label: 'GPT-4.1 mini' },
+      { id: 'gpt-5.4', label: 'GPT-5.4' },
+    ];
 
 /** Tóm tắt các tool (name + ý nghĩa) để FE hiển thị cho người viết prompt. */
 export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
@@ -588,6 +689,26 @@ export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   {
     name: 'get_shipping',
     desc: 'Shipping fee + time of one factory (partner_id from compare_factories) to each country (carrier, first/additional item price). Use for "cheapest/fastest to country X" and margin including shipping.',
+  },
+  {
+    name: 'get_size_chart',
+    desc: 'Size chart of a product (measurements per size — e.g. Length, Bust in inch + cm) + size-guide image. Use for sizing/measurement/fit questions.',
+  },
+  {
+    name: 'get_product_detail',
+    desc: 'Overview of ONE product (scalar): description, base cost range, print sides, processing/production time, shipping summary (US/WW), mockup image, color/size/factory counts. Use the array tools for details.',
+  },
+  {
+    name: 'get_product_colors',
+    desc: 'Full color list of a product (name + hex). Use for "what colors are available".',
+  },
+  {
+    name: 'get_decorations',
+    desc: 'Print techniques (DTG/DTF/Sleeve) + design-file requirements (format, size, DPI) of a product. Use for print method / printable sides / file requirements.',
+  },
+  {
+    name: 'get_related_products',
+    desc: 'Related/suggested products (alternatives, upsell) for a product.',
   },
   {
     name: 'calculate_margin',
