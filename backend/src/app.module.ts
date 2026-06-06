@@ -5,6 +5,7 @@ import { SessionModule } from './session/session.module';
 import { AgentModule } from './agent/agent.module';
 import { BurgerPrintsModule } from './burgerprints/burgerprints.module';
 import { ConversationModule } from './conversation/conversation.module';
+import { KnowledgeModule } from './knowledge/knowledge.module';
 import { HealthModule } from './health/health.module';
 import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './users/users.module';
@@ -30,6 +31,7 @@ import Redis from 'ioredis';
     BurgerPrintsModule,
     AgentModule,
     ConversationModule,
+    KnowledgeModule,
     HealthModule,
     ScheduleModule.forRoot(),
     BullModule.forRootAsync({

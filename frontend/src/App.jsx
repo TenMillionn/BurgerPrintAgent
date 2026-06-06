@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowUp, ChevronDown, CircleCheck, Clock, Globe, PanelLeftOpen, Plus, Sparkles } from 'lucide-react';
 import WelcomeModal from './components/WelcomeModal';
 import Sidebar from './components/Sidebar';
+import KnowledgePanel from './components/KnowledgePanel';
 import { useTranslation } from './i18n';
 
 // Web (Vite dev) dùng proxy '/api'. Extension chạy origin chrome-extension:// nên gọi
@@ -97,6 +98,7 @@ export default function App() {
   // is no saved access token.
   const [showModal, setShowModal] = useState(!savedAuth?.token);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showKnowledge, setShowKnowledge] = useState(false);
   const [conversations, setConversations] = useState([]);
   const scrollRef = useRef(null);
   const taRef = useRef(null);
@@ -567,6 +569,7 @@ export default function App() {
   const ready = !!token || !!sessionId;
   const userName = auth?.user?.displayName || auth?.user?.email || '';
   const userEmail = auth?.user?.email || '';
+  const isAdmin = auth?.user?.role === 'admin';
 
   return (
     <div className="app">
@@ -586,7 +589,13 @@ export default function App() {
           onSelect={selectConversation}
           onRename={renameConversation}
           onDelete={deleteConversation}
+          isAdmin={isAdmin}
+          onOpenKnowledge={() => setShowKnowledge(true)}
         />
+      )}
+
+      {showKnowledge && (
+        <KnowledgePanel apiFetch={apiFetch} t={t} onClose={() => setShowKnowledge(false)} />
       )}
 
       {/* Mobile overlay when sidebar is open */}
