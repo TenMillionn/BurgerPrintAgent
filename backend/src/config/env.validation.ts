@@ -43,6 +43,18 @@ export const envValidationSchema = Joi.object({
   BURGERPRINTS_API_BASE_URL: Joi.string().uri().required(),
   BURGERPRINTS_API_KEY: Joi.string().required(),
   CATALOG_CACHE_TTL_SECONDS: Joi.number().integer().positive().default(300),
+
+  // Cloudflare R2 (design/mockup image hosting)
+  R2_ACCOUNT_ID: Joi.string().required(),
+  R2_ACCESS_KEY_ID: Joi.string().required(),
+  R2_SECRET_ACCESS_KEY: Joi.string().required(),
+  R2_BUCKET: Joi.string().required(),
+  R2_ENDPOINT: Joi.string().uri().required(),
+  R2_PUBLIC_BASE_URL: Joi.string().uri().required(),
+  UPLOAD_MAX_BYTES: Joi.number().integer().positive().default(10485760),
+
+  // Seller API-key encryption (AES-256-GCM)
+  ENCRYPTION_KEY: Joi.string().min(16).required(),
 })
   // Báo tất cả lỗi cùng lúc thay vì dừng ở lỗi đầu tiên
   .options({ abortEarly: false });

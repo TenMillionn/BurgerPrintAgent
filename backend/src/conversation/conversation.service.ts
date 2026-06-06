@@ -216,6 +216,7 @@ export class ConversationService {
         history,
         systemPrompt,
         model,
+        userId,
       })) {
         if (chunk.type === 'token') assembled += chunk.text;
         if (chunk.type === 'tool' && chunk.status === 'running') {
@@ -293,6 +294,7 @@ export class ConversationService {
         message,
         language: session.language,
         history,
+        isGuest: true,
       })) {
         if (chunk.type === 'token') assembled += chunk.text;
         if (chunk.type === 'error') errored = true;

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BurgerPrintsModule } from '../burgerprints/burgerprints.module';
 import { MemoryModule } from '../memory/memory.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
+import { UsersModule } from '../users/users.module';
 import { AGENT_RUNTIME } from './agent-runtime.port';
 import { PiAgentCoreRuntime } from './pi-agent-core.runtime';
 import { WebFetchService } from './web-fetch.service';
@@ -11,7 +12,7 @@ import { WebFetchService } from './web-fetch.service';
  * In tests the AGENT_RUNTIME provider is overridden with a test-double.
  */
 @Module({
-  imports: [BurgerPrintsModule, MemoryModule, KnowledgeModule],
+  imports: [BurgerPrintsModule, MemoryModule, KnowledgeModule, UsersModule],
   providers: [
     WebFetchService,
     { provide: AGENT_RUNTIME, useClass: PiAgentCoreRuntime },

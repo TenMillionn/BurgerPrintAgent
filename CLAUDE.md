@@ -1,14 +1,18 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-`specs/004-knowledge-base/plan.md`
+`specs/005-create-order/plan.md`
 
-Feature 004 adds an admin-managed knowledge layer: admins upload Markdown playbook
-guides (paste or .md); an LLM generates retrieval metadata (summary/keywords/intents/
-sample questions); a `retrieve_knowledge` agent tool (BM25/MiniSearch over the metadata,
-reusing MemoryService's pattern) returns the most relevant guide every turn so the agent
-applies uploaded know-how without code/prompt changes. Admin-only management via a
-RolesGuard on User.role + a make-admin CLI. Spec & artifacts in `specs/004-knowledge-base/`.
+Feature 005 lets a logged-in seller create and pay for a single-item BurgerPrints
+fulfillment order through chat, with two confirmation gates (create, then charge) and a
+sandbox draft to preview cost. It adds: image upload to Cloudflare R2 (design/mockup →
+public URL), per-seller BurgerPrints API key management (AES-256-GCM encrypted on User),
+auth + key gates surfaced to the FE via a new streaming `action` chunk, and order
+lifecycle agent tools (create/charge/balance/get/tracking/cancel/delete) wired into
+pi-agent-core.runtime.ts. Spec & artifacts in `specs/005-create-order/`.
+
+Prior feature 004 added the admin-managed knowledge layer (`retrieve_knowledge` tool over
+admin-uploaded Markdown guides); see `specs/004-knowledge-base/`.
 <!-- SPECKIT END -->
 
 ## Conventions

@@ -10,6 +10,9 @@ import WelcomeModal from './components/WelcomeModal';
 import Sidebar from './components/Sidebar';
 import KnowledgePanel from './components/KnowledgePanel';
 import UserAdminPanel from './components/UserAdminPanel';
+import KeyModal from './components/KeyModal';
+import KeyInlineCard from './components/KeyInlineCard';
+import ChatButtons from './components/ChatButtons';
 import { useTranslation } from './i18n';
 
 // Web (Vite dev) dùng proxy '/api'. Extension chạy origin chrome-extension:// nên gọi
@@ -105,9 +108,13 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [attachments, setAttachments] = useState([]); // [{ url, name }]
+  const [uploading, setUploading] = useState(false);
   const [conversations, setConversations] = useState([]);
   const scrollRef = useRef(null);
   const taRef = useRef(null);
+  const fileRef = useRef(null);
   const stick = useRef(true);
 
   // Tool label lookup via i18n
@@ -489,10 +496,45 @@ export default function App() {
     }
   }
 
-  async function send() {
-    const msg = input.trim();
-    if (!msg || busy) return;
+  async function handleAttachClick() {
+    if (!token) {
+      setShowModal(true); // images can only be uploaded by a logged-in seller
+      return;
+    }
+    fileRef.current?.click();
+  }
+
+  async function handleFilePicked(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await apiFetch('/uploads', { method: 'POST', body: fd });
+      if (!r.ok) throw new Error('upload failed');
+      const d = await r.json();
+      setAttachments((a) => [...a, { url: d.url, name: file.name }]);
+    } catch {
+      alert(t('composer.uploadError'));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function send(overrideText) {
+    const useOverride = typeof overrideText === 'string';
+    const typed = useOverride ? overrideText.trim() : input.trim();
+    // Override sends (e.g. an auto "Done" after saving the key) carry no attachments.
+    const atts = useOverride ? [] : attachments;
+    if ((!typed && atts.length === 0) || busy) return;
     const isGuest = !token;
+
+    // Fold uploaded image URLs into the outgoing message so the agent can use
+    // them as design/mockup artwork.
+    const attachLines = atts.map((a) => `Design image: ${a.url}`);
+    const msg = [typed, ...attachLines].filter(Boolean).join('\n');
 
     // Authed users get a real persisted conversation (lazy-created); guests use
     // the public, ephemeral guest stream and persist nothing.
@@ -508,7 +550,10 @@ export default function App() {
       }
     }
 
-    setInput('');
+    if (!useOverride) {
+      setInput('');
+      setAttachments([]);
+    }
     setBusy(true);
     stick.current = true;
     setMessages((m) => [
@@ -562,6 +607,13 @@ export default function App() {
         }
         return { ...a, steps };
       });
+    } else if (event === 'action') {
+      // login → popup; apikey → an inline setup card attached to THIS agent turn.
+      if (d.action === 'login_required') setShowModal(true);
+      else if (d.action === 'apikey_required') patchLast((a) => ({ ...a, keyPrompt: true }));
+    } else if (event === 'buttons') {
+      // Inline clickable buttons attached to this agent turn.
+      patchLast((a) => ({ ...a, buttons: [...(a.buttons || []), ...(d.buttons || [])] }));
     } else if (event === 'error') {
       patchLast((a) => ({ ...a, text: a.text + `\n\n⚠️ ${d.message || t('status.error')}` }));
     }
@@ -611,9 +663,14 @@ export default function App() {
           isAdmin={isAdmin}
           onOpenKnowledge={() => setShowKnowledge(true)}
           onOpenUsers={() => setShowUsers(true)}
+          onOpenKeySettings={() => setShowKeyModal(true)}
           isGuest={isGuest}
           onLogin={() => setShowModal(true)}
         />
+      )}
+
+      {showKeyModal && (
+        <KeyModal apiFetch={apiFetch} t={t} onClose={() => setShowKeyModal(false)} />
       )}
 
       {showKnowledge && (
@@ -761,14 +818,25 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <AssistantMessage
-                key={i}
-                msg={m}
-                streaming={busy && i === messages.length - 1}
-                toolLabel={toolLabel}
-                t={t}
-                locale={locale}
-              />
+              <div key={i}>
+                <AssistantMessage
+                  msg={m}
+                  streaming={busy && i === messages.length - 1}
+                  toolLabel={toolLabel}
+                  t={t}
+                  locale={locale}
+                />
+                {m.keyPrompt && (
+                  <KeyInlineCard
+                    apiFetch={apiFetch}
+                    t={t}
+                    onSaved={() => send('Setup BurgerPrint apikey done')}
+                  />
+                )}
+                {m.buttons && (
+                  <ChatButtons buttons={m.buttons} onMessage={(text) => send(text)} />
+                )}
+              </div>
             ),
           )}
         </div>
@@ -776,6 +844,32 @@ export default function App() {
         {/* Composer */}
         <div className="composer">
           <div className="composer-box">
+            {/* Uploaded design pills */}
+            {(attachments.length > 0 || uploading) && (
+              <div className="flex flex-wrap gap-2 px-1 pb-2">
+                {attachments.map((a, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-medium)] bg-[var(--bg-sidebar)] px-2.5 py-1 text-[12px] text-[var(--text-primary)]"
+                  >
+                    <span className="max-w-[160px] truncate">{a.name}</span>
+                    <button
+                      type="button"
+                      className="text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                      onClick={() => setAttachments((list) => list.filter((_, i) => i !== idx))}
+                      title={t('common.close')}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {uploading && (
+                  <span className="inline-flex items-center rounded-full border border-[var(--border-medium)] bg-[var(--bg-sidebar)] px-2.5 py-1 text-[12px] text-[var(--text-muted)]">
+                    {t('composer.uploading')}
+                  </span>
+                )}
+              </div>
+            )}
             <textarea
               ref={taRef}
               value={input}
@@ -790,15 +884,28 @@ export default function App() {
               disabled={!ready || busy}
               rows={1}
             />
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={handleFilePicked}
+            />
             <div className="composer-row">
-              <button className="composer-plus" type="button" title={t('composer.attach')} disabled>
+              <button
+                className="composer-plus"
+                type="button"
+                title={token ? t('composer.attach') : t('composer.loginToUpload')}
+                onClick={handleAttachClick}
+                disabled={!ready || busy || uploading}
+              >
                 <Plus size={18} strokeWidth={2} />
               </button>
               <div className="composer-spacer" />
               <button
                 className="composer-send"
                 onClick={send}
-                disabled={!ready || busy || !input.trim()}
+                disabled={!ready || busy || (!input.trim() && attachments.length === 0)}
                 title={t('composer.send')}
               >
                 <ArrowUp size={18} strokeWidth={2.4} />

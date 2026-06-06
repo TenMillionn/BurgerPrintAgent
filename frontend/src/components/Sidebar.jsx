@@ -10,6 +10,7 @@ import {
   Trash2,
   BookOpen,
   Users,
+  KeyRound,
 } from 'lucide-react';
 import { useTranslation } from '../i18n';
 
@@ -30,6 +31,7 @@ export default function Sidebar({
   isAdmin = false,
   onOpenKnowledge,
   onOpenUsers,
+  onOpenKeySettings,
   isGuest = false,
   onLogin,
 }) {
@@ -71,6 +73,12 @@ export default function Sidebar({
             <button className="sidebar-item" onClick={onOpenUsers}>
               <Users size={19} strokeWidth={1.8} className="sidebar-item-icon" />
               <span className="sidebar-item-label">{t('users.open')}</span>
+            </button>
+          )}
+          {!isGuest && onOpenKeySettings && (
+            <button className="sidebar-item" onClick={onOpenKeySettings}>
+              <KeyRound size={19} strokeWidth={1.8} className="sidebar-item-icon" />
+              <span className="sidebar-item-label">{t('sidebar.apiKey')}</span>
             </button>
           )}
         </nav>

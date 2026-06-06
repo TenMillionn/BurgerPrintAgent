@@ -8,6 +8,7 @@ import { ConversationModule } from './conversation/conversation.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { HealthModule } from './health/health.module';
 import { DatabaseModule } from './database/database.module';
+import { UploadsModule } from './uploads/uploads.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { APP_GUARD } from '@nestjs/core';
@@ -32,6 +33,7 @@ import Redis from 'ioredis';
     AgentModule,
     ConversationModule,
     KnowledgeModule,
+    UploadsModule,
     HealthModule,
     ScheduleModule.forRoot(),
     BullModule.forRootAsync({

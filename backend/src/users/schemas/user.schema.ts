@@ -29,6 +29,14 @@ export class User {
   @Prop({ default: true })
   isActive: boolean;
 
+  /**
+   * The seller's own BurgerPrints API key, AES-256-GCM encrypted at rest
+   * (see crypto.util). Absent = not configured. Not selected by default; only a
+   * {configured, last4} status is ever exposed to clients.
+   */
+  @Prop({ select: false })
+  burgerprintsApiKeyEnc?: string;
+
   @Prop({ default: 0 })
   failedLoginAttempts: number;
 

@@ -40,6 +40,14 @@ export interface BurgerPrintsConfig {
   apiKey: string;
   cacheTtlSeconds: number;
 }
+export interface R2Config {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+  endpoint: string;
+  publicBaseUrl: string;
+}
 
 export interface RootConfig {
   app: AppConfig;
@@ -50,6 +58,9 @@ export interface RootConfig {
   oauth: OAuthConfig;
   llm: LlmConfig;
   burgerprints: BurgerPrintsConfig;
+  r2: R2Config;
+  uploadMaxBytes: number;
+  encryptionKey: string;
 }
 
 export default (): RootConfig => ({
@@ -97,4 +108,14 @@ export default (): RootConfig => ({
       10,
     ),
   },
+  r2: {
+    accountId: process.env.R2_ACCOUNT_ID as string,
+    accessKeyId: process.env.R2_ACCESS_KEY_ID as string,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY as string,
+    bucket: process.env.R2_BUCKET as string,
+    endpoint: process.env.R2_ENDPOINT as string,
+    publicBaseUrl: process.env.R2_PUBLIC_BASE_URL as string,
+  },
+  uploadMaxBytes: parseInt(process.env.UPLOAD_MAX_BYTES ?? '10485760', 10),
+  encryptionKey: process.env.ENCRYPTION_KEY as string,
 });
