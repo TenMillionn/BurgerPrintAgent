@@ -4,7 +4,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { ApiPublic } from 'src/common/decorators/http.decorators';
 
 @Controller('api/burgerprints-sync')
-  @ApiTags('Burger Print Sync APIs')
+@ApiTags('Burger Print Sync APIs')
 export class BurgerprintsSyncController {
   private readonly logger = new Logger(BurgerprintsSyncController.name);
 

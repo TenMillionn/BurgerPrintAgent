@@ -7,7 +7,10 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { Product } from './schemas/product.schema';
 import { SyncProducer } from './jobs/sync.producer';
-import { BpListResponse, BpListProduct } from './types/burger-print-catalog.type';
+import {
+  BpListResponse,
+  BpListProduct,
+} from './types/burger-print-catalog.type';
 import { ProductMapper } from './mappers/product.mapper';
 
 @Injectable()
@@ -41,7 +44,9 @@ export class BurgerprintsSyncService {
       this.logger.log(`Fetching page ${pageIndex}...`);
       try {
         const url = `${this.baseUrl}/api/v1/catalogsV2/search?pageSize=${pageSize}&pageIndex=${pageIndex}`;
-        const response = await firstValueFrom(this.httpService.get<BpListResponse>(url));
+        const response = await firstValueFrom(
+          this.httpService.get<BpListResponse>(url),
+        );
         const data = response.data;
 
         const products = data.data?.content || [];

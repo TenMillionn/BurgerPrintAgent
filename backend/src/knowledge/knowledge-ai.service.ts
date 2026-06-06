@@ -22,10 +22,13 @@ export class KnowledgeAiService {
   async generate(content: string): Promise<GeneratedMetadata> {
     const apiKey = this.config.get<string>('llm.openaiApiKey');
     const baseUrl =
-      this.config.get<string>('llm.openaiBaseUrl') || 'https://api.openai.com/v1';
+      this.config.get<string>('llm.openaiBaseUrl') ||
+      'https://api.openai.com/v1';
     const model = this.config.get<string>('llm.model') || 'gpt-4o';
     if (!apiKey) {
-      throw new Error('OPENAI_API_KEY is not configured for metadata generation');
+      throw new Error(
+        'OPENAI_API_KEY is not configured for metadata generation',
+      );
     }
 
     const system =
@@ -67,13 +70,21 @@ export class KnowledgeAiService {
     let obj: any;
     try {
       // Strip accidental code fences if a model added them despite instructions.
-      const cleaned = raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      const cleaned = raw
+        .replace(/^```(?:json)?/i, '')
+        .replace(/```$/, '')
+        .trim();
       obj = JSON.parse(cleaned);
     } catch {
       throw new Error('Metadata LLM returned non-JSON output');
     }
     const arr = (v: any): string[] =>
-      Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).slice(0, 20) : [];
+      Array.isArray(v)
+        ? v
+            .map((x) => String(x).trim())
+            .filter(Boolean)
+            .slice(0, 20)
+        : [];
     return {
       summary: String(obj.summary ?? '').trim(),
       keywords: arr(obj.keywords),

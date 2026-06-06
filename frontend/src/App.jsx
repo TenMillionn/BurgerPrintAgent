@@ -11,6 +11,8 @@ import Sidebar from './components/Sidebar';
 import KnowledgePanel from './components/KnowledgePanel';
 import UserAdminPanel from './components/UserAdminPanel';
 import { useTranslation } from './i18n';
+import { OrderProvider } from './components/ManualOrderWizard/OrderContext';
+import WizardLayout from './components/ManualOrderWizard/WizardLayout';
 
 // Web (Vite dev) dùng proxy '/api'. Extension chạy origin chrome-extension:// nên gọi
 // thẳng backend (mặc định cổng 3001 — đổi trong ô "Backend URL" nếu cần).
@@ -101,6 +103,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
+  const [orderWizardConfig, setOrderWizardConfig] = useState(null);
   const [conversations, setConversations] = useState([]);
   const scrollRef = useRef(null);
   const taRef = useRef(null);
@@ -594,6 +597,7 @@ export default function App() {
           isAdmin={isAdmin}
           onOpenKnowledge={() => setShowKnowledge(true)}
           onOpenUsers={() => setShowUsers(true)}
+          onCreateOrder={(initialData = {}) => setOrderWizardConfig(initialData)}
         />
       )}
 
@@ -608,6 +612,12 @@ export default function App() {
           currentUserId={auth?.user?.id}
           onClose={() => setShowUsers(false)}
         />
+      )}
+
+      {orderWizardConfig && (
+        <OrderProvider initialData={orderWizardConfig}>
+          <WizardLayout onClose={() => setOrderWizardConfig(null)} />
+        </OrderProvider>
       )}
 
       {/* Mobile overlay when sidebar is open */}

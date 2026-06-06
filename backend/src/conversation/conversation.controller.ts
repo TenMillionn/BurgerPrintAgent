@@ -55,7 +55,9 @@ export class ConversationController {
   @ApiAuth({ summary: 'List conversations' })
   @Get()
   async list(@Req() req: any) {
-    return { conversations: await this.conversation.listConversations(req.user._id) };
+    return {
+      conversations: await this.conversation.listConversations(req.user._id),
+    };
   }
 
   /** Get one conversation with its full message history. */

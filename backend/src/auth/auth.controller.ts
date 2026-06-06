@@ -86,9 +86,7 @@ export class AuthController {
     const state = req.query?.state;
     if (typeof state === 'string' && state) {
       try {
-        const decoded = JSON.parse(
-          Buffer.from(state, 'base64url').toString(),
-        );
+        const decoded = JSON.parse(Buffer.from(state, 'base64url').toString());
         if (decoded.ext_redirect) target = decoded.ext_redirect;
       } catch {
         /* ignore malformed state */

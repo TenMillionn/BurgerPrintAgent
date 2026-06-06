@@ -9,11 +9,16 @@ import { BullModule } from '@nestjs/bullmq';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Product, ProductSchema } from './schemas/product.schema';
 import { Variant, VariantSchema } from './schemas/product-variant.schema';
-import { ShippingRate, ShippingRateSchema } from './schemas/product-shipping.schema';
+import {
+  ShippingRate,
+  ShippingRateSchema,
+} from './schemas/product-shipping.schema';
 import { BurgerprintsSyncService } from './burgerprints-sync.service';
 import { SyncProducer } from './jobs/sync.producer';
 import { SyncProcessor } from './jobs/sync.processor';
 import { BurgerprintsSyncController } from './burgerprints-sync.controller';
+import { BurgerprintsOrdersController } from './burgerprints-orders.controller';
+import { BurgerprintsOrdersService } from './burgerprints-orders.service';
 
 @Module({
   imports: [
@@ -26,16 +31,18 @@ import { BurgerprintsSyncController } from './burgerprints-sync.controller';
       { name: Product.name, schema: ProductSchema },
       { name: Variant.name, schema: VariantSchema },
       { name: ShippingRate.name, schema: ShippingRateSchema },
-    ]),],
-  controllers: [BurgerprintsSyncController],
+    ]),
+  ],
+  controllers: [BurgerprintsSyncController, BurgerprintsOrdersController],
   providers: [
     BurgerPrintsService,
-    BurgerprintsSyncService, 
-    SyncProducer, 
+    BurgerprintsSyncService,
+    SyncProducer,
     SyncProcessor,
-    BurgerPrintToolService
+    BurgerPrintToolService,
+    BurgerprintsOrdersService,
   ],
 
-  exports: [BurgerPrintsService,BurgerPrintToolService],
+  exports: [BurgerPrintsService, BurgerPrintToolService],
 })
 export class BurgerPrintsModule {}

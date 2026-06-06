@@ -1,9 +1,4 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { isValidObjectId } from 'mongoose';
 import { AGENT_RUNTIME, AgentRuntime } from '../agent/agent-runtime.port';
 import { AgentChunk } from '../agent/agent.types';
@@ -200,7 +195,8 @@ export class ConversationService {
 
     const session = await this.sessions.getSessionOrThrow(sessionId);
     const history = await this.sessions.getContextTurns(sessionId);
-    const systemPrompt = (await this.getSystemPromptRaw(sessionId)) ?? undefined;
+    const systemPrompt =
+      (await this.getSystemPromptRaw(sessionId)) ?? undefined;
     const model = (await this.getModelRaw(sessionId)) ?? undefined;
 
     let assembled = '';

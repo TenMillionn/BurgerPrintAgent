@@ -470,11 +470,12 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
       tool(
         'retrieve_knowledge',
-        'Look up internal how-to guides relevant to the seller\'s request. Call this at the START of every turn with the seller\'s message. If it returns a matching guide, follow that guide (its steps, checks, and follow-up questions); if it returns nothing, answer normally. Never mention guides/tools to the seller.',
+        "Look up internal how-to guides relevant to the seller's request. Call this at the START of every turn with the seller's message. If it returns a matching guide, follow that guide (its steps, checks, and follow-up questions); if it returns nothing, answer normally. Never mention guides/tools to the seller.",
         {
           query: {
             type: 'string',
-            description: "The seller's request / question to find a relevant guide for",
+            description:
+              "The seller's request / question to find a relevant guide for",
           },
         },
         ['query'],
@@ -486,7 +487,8 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         {
           url: {
             type: 'string',
-            description: 'The absolute http(s) URL to fetch, e.g. "https://example.com/page"',
+            description:
+              'The absolute http(s) URL to fetch, e.g. "https://example.com/page"',
           },
         },
         ['url'],
@@ -515,7 +517,11 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         },
         ['short_code', 'partner_id'],
         (p) =>
-          this.burgerPrintToolService.getShipping(p.short_code, p.partner_id, p.country),
+          this.burgerPrintToolService.getShipping(
+            p.short_code,
+            p.partner_id,
+            p.country,
+          ),
       ),
       tool(
         'get_size_chart',
@@ -731,7 +737,7 @@ export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   },
   {
     name: 'retrieve_knowledge',
-    desc: 'Look up internal how-to guides relevant to the seller\'s request (called every turn). If a guide matches, the agent follows it; otherwise it answers normally.',
+    desc: "Look up internal how-to guides relevant to the seller's request (called every turn). If a guide matches, the agent follows it; otherwise it answers normally.",
   },
   {
     name: 'fetch_url',

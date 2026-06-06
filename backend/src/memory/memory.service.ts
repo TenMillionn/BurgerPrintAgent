@@ -22,7 +22,12 @@ export class MemoryService {
   ): Promise<{
     query: string;
     total_searched: number;
-    results: Array<{ turn: number; role: string; content: string; score: number }>;
+    results: Array<{
+      turn: number;
+      role: string;
+      content: string;
+      score: number;
+    }>;
   }> {
     const raw = await this.redis.lrange(turnsKey(sessionId), 0, -1);
     const turns: ConversationTurn[] = raw.map((r) => JSON.parse(r));
@@ -40,7 +45,12 @@ export class MemoryService {
       searchOptions: { fuzzy: 0.2, prefix: true },
     });
     mini.addAll(
-      turns.map((t, i) => ({ id: i, turn: i, role: t.role, content: t.content })),
+      turns.map((t, i) => ({
+        id: i,
+        turn: i,
+        role: t.role,
+        content: t.content,
+      })),
     );
 
     const results = mini

@@ -13,8 +13,8 @@
  * 0. Envelope chung
  * ========================================================================= */
 export interface BpApiResponse<T> {
-  code: number;      // 200
-  message: string;   // "success"
+  code: number; // 200
+  message: string; // "success"
   data: T;
 }
 
@@ -24,7 +24,7 @@ export interface BpApiResponse<T> {
 
 export interface BpCatalogObject {
   catalogId: string;
-  catalogName: string;   // "Amazon" | "Express" | "T-shirts" | "Bella+Canvas" | "EU" ...
+  catalogName: string; // "Amazon" | "Express" | "T-shirts" | "Bella+Canvas" | "EU" ...
   description: string;
   catalogType?: string;
 }
@@ -32,13 +32,13 @@ export interface BpCatalogObject {
 /** Size/màu ở cấp PRODUCT (position là number) */
 export interface BpSizeOption {
   id: string;
-  name: string;          // "S" | "M" | "2XL" ...
+  name: string; // "S" | "M" | "2XL" ...
   position: number;
 }
 export interface BpColorOption {
   id: string;
-  name: string;          // "Black"
-  value: string;         // hex "#25282A"
+  name: string; // "Black"
+  value: string; // hex "#25282A"
   swag: string | null;
   position: number;
 }
@@ -47,14 +47,14 @@ export interface BpColorOption {
 export interface BpPartnerColor {
   id: string;
   name: string;
-  value: string;         // hex
+  value: string; // hex
   swag: string | null;
-  position: string;      // ⚠️ string ở đây
+  position: string; // ⚠️ string ở đây
 }
 
 export interface BpProductService {
-  method: string;        // "standard"
-  value: string;         // mô tả
+  method: string; // "standard"
+  value: string; // mô tả
 }
 
 /**
@@ -64,11 +64,11 @@ export interface BpProductService {
  * Shipping method/carriers, Quality, Error rate, Printing method.
  */
 export interface BpPartnerLocation {
-  id: string;            // = partnerId (khóa nối tới shipping/variants.location)
-  name: string;          // "Rocky" | "Hatta"
-  value: string;         // HTML blob -> cần parse
+  id: string; // = partnerId (khóa nối tới shipping/variants.location)
+  name: string; // "Rocky" | "Hatta"
+  value: string; // HTML blob -> cần parse
   icon: string;
-  position: string;      // "9" | "37"
+  position: string; // "9" | "37"
   colors: BpPartnerColor[];
   flag: string | null;
   productServices: BpProductService[];
@@ -91,20 +91,20 @@ export interface BpListProduct {
   displayName: string;
   baseDesignFormat: string | null;
   catalogPosition: number | null;
-  dropshipPriceMin: number;          // number ở list
+  dropshipPriceMin: number; // number ở list
   dropshipPriceMax: number;
-  revenue: number | null;            // popularity
+  revenue: number | null; // popularity
   isNew: '0' | '1' | null;
   createdDate: [number, number, number]; // [y, m(1-based), d]
   addressCountry: string | null;
   personSuggest: unknown | null;
-  locations: string;                 // CSV tên xưởng: "Rocky,Hatta"
-  sizesList: string;                 // CSV: "S,M,L,XL,2XL"
-  countColors: string;               // "131"
-  productionTime: string | null;     // "1-3"
+  locations: string; // CSV tên xưởng: "Rocky,Hatta"
+  sizesList: string; // CSV: "S,M,L,XL,2XL"
+  countColors: string; // "131"
+  productionTime: string | null; // "1-3"
   sizes: BpSizeOption[];
   colors: BpColorOption[];
-  decorations: string;               // JSON string -> BpDecoration[]
+  decorations: string; // JSON string -> BpDecoration[]
   aliasName: string;
   desc?: string;
 }
@@ -152,14 +152,14 @@ export interface BpPrintable {
   printableLeft: string;
   printableTop: string;
   printableWidth: string;
-  type: string;          // "front" | "back"
-  unit: string;          // "pixels"
+  type: string; // "front" | "back"
+  unit: string; // "pixels"
 }
 
 export interface BpMedia {
   id: string;
   url: string;
-  type: string;          // "image"
+  type: string; // "image"
   shortCode: string;
 }
 
@@ -167,7 +167,7 @@ export interface BpMedia {
 export interface BpOptionValue {
   id: string;
   name: string;
-  value?: string;        // hex (chỉ color)
+  value?: string; // hex (chỉ color)
   swag: string | null;
   position: number;
 }
@@ -180,31 +180,31 @@ export interface BpOption {
 export interface BpBaseSku {
   id: string;
   shortCode: string;
-  sku: string;                 // "EUG2400-Black-S"
+  sku: string; // "EUG2400-Black-S"
   sizeId: string;
   sizeName: string;
   colorId: string;
   colorName: string;
   colorSwag: string | null;
-  baseCost: string;            // "14" | "16" (⚠️ đổi theo size)
-  secondSidePrice: string;     // "5" | "4.8" — phí mặt in thứ 2
-  defaultProfit: string;       // "39.95" — gợi ý (xác minh ngữ nghĩa)
+  baseCost: string; // "14" | "16" (⚠️ đổi theo size)
+  secondSidePrice: string; // "5" | "4.8" — phí mặt in thứ 2
+  defaultProfit: string; // "39.95" — gợi ý (xác minh ngữ nghĩa)
   sizePosition: number;
-  location: string;            // = partnerId (KHÓA NỐI)
+  location: string; // = partnerId (KHÓA NỐI)
   locationPosition: number;
-  locationName: string;        // "Rocky" | "Hatta"
+  locationName: string; // "Rocky" | "Hatta"
   locationIcon: string;
   colorPosition: number;
-  shippingCostUs: string;      // ship US item đầu
-  shippingAddingUs: string;    // ship US item thêm
+  shippingCostUs: string; // ship US item đầu
+  shippingAddingUs: string; // ship US item thêm
   shippingCostWW: string | null;
   shippingAddingWW: string | null;
 }
 
 export interface BpProductShipping {
-  shippingLines: string;       // "Spring"
-  shippingTimeUs: string;      // "3-9"
-  shippingTimeWw: string;      // "7-15"
+  shippingLines: string; // "Spring"
+  shippingTimeUs: string; // "3-9"
+  shippingTimeWw: string; // "7-15"
 }
 
 export interface BpProductDetail {
@@ -212,8 +212,8 @@ export interface BpProductDetail {
   name: string;
   displayName: string;
   desc: string;
-  currency: string;            // "USD"
-  designGroup: string;         // "shirt"
+  currency: string; // "USD"
+  designGroup: string; // "shirt"
   editSizePrice: number;
   fullFillment: number;
   strPrintable: string | null;
@@ -222,21 +222,21 @@ export interface BpProductDetail {
   strDimension: string | null;
   position: string;
   designType: string | null;
-  state: string;               // "approved"
+  state: string; // "approved"
   media: BpMedia[];
-  resolutionRequire: string;   // pipe-separated
+  resolutionRequire: string; // pipe-separated
   catalogName: string | null;
   catalogId: string | null;
-  htmlDesc: string;            // chứa region + technique
+  htmlDesc: string; // chứa region + technique
   designTemplate: string | null;
-  sizeChart: string;           // JSON string -> BpSizeChart
-  titleSuffix: string;         // "EU"
-  baseCost: string;            // top-level "14"
-  sizes: null;                 // luôn null ở detail (dùng options)
+  sizeChart: string; // JSON string -> BpSizeChart
+  titleSuffix: string; // "EU"
+  baseCost: string; // top-level "14"
+  sizes: null; // luôn null ở detail (dùng options)
   colors: null;
   options: BpOption[];
   baseSku: BpBaseSku[];
-  processingTime: string;      // "2-4 business days"
+  processingTime: string; // "2-4 business days"
   shippingLines: string | null;
   shippingTimeUS: string | null;
   shippingTimeWW: string | null;
@@ -249,7 +249,7 @@ export interface BpProductDetail {
   shippingAddingWW: string | null;
   locationDB: unknown | null;
   metadataDB: unknown | null;
-  locations: BpPartnerLocation[];   // các xưởng (Rocky, Hatta) + HTML blob
+  locations: BpPartnerLocation[]; // các xưởng (Rocky, Hatta) + HTML blob
   decorations: BpDecoration[] | null;
 }
 
@@ -262,26 +262,27 @@ export type BpDetailResponse = BpApiResponse<BpProductDetail>;
 export interface BpDecorationsFilterData {
   locations: BpPartnerLocation[];
 }
-export type BpDecorationsFilterResponse = BpApiResponse<BpDecorationsFilterData>;
+export type BpDecorationsFilterResponse =
+  BpApiResponse<BpDecorationsFilterData>;
 
 /* =========================================================================
  * 5. LOCATIONS (shipping) — GET /catalogsV2/locations?shortCode=&partnerId=
  *    (ma trận ship theo quốc gia cho cặp product × partner)
  * ========================================================================= */
 export interface BpShippingDetail {
-  method: string;              // "standard"
-  name: string;                // "Standard"
-  description: string;         // "5-10 business days"
-  carriers: string;            // "DHL"
-  firstItemPrice: string;      // "9.0"
+  method: string; // "standard"
+  name: string; // "Standard"
+  description: string; // "5-10 business days"
+  carriers: string; // "DHL"
+  firstItemPrice: string; // "9.0"
   additionalItemPrice: string; // "3.59"
   position: number;
 }
 export interface BpCountryShipping {
-  countryCode: string;         // "DE"
+  countryCode: string; // "DE"
   countryName: string;
   flag: string;
-  details: BpShippingDetail[] | null;  // null = KHÔNG ship tới nước này
+  details: BpShippingDetail[] | null; // null = KHÔNG ship tới nước này
 }
 export type BpLocationsResponse = BpApiResponse<BpCountryShipping[]>;
 
@@ -291,8 +292,8 @@ export type BpLocationsResponse = BpApiResponse<BpCountryShipping[]>;
 
 /** JSON.parse(product.decorations) */
 export interface BpDecorationArea {
-  decorationKey: string;       // "Front" | "Back" | "Left Sleeve / Right Sleeve"
-  decorationArea: string;      // "4200x4800 at 300 DPI (14x16 in)"
+  decorationKey: string; // "Front" | "Back" | "Left Sleeve / Right Sleeve"
+  decorationArea: string; // "4200x4800 at 300 DPI (14x16 in)"
   hoop: string;
   templateUrl: string;
 }
@@ -302,7 +303,7 @@ export interface BpDecorationGuidelineItem {
   content: string;
 }
 export interface BpDecoration {
-  name: string;                // "DTG Printing" | "DTF Printing" | "Digital Printing"
+  name: string; // "DTG Printing" | "DTF Printing" | "Digital Printing"
   value: BpDecorationArea[];
   designGuideline: {
     fileFormat: BpDecorationGuidelineItem;
@@ -314,11 +315,11 @@ export interface BpDecoration {
 /** JSON.parse(detail.sizeChart) */
 export interface BpSizeChart {
   image: string;
-  size: string[];                       // ["S","M","L","XL","2XL"]
+  size: string[]; // ["S","M","L","XL","2XL"]
   data: { in: string; cm: string }[][]; // [size][measurement]
   name: string;
-  column: string[];                     // ["Length","Bust","Sleeve"]
-  type: string;                         // "tshirt-2d"
+  column: string[]; // ["Length","Bust","Sleeve"]
+  type: string; // "tshirt-2d"
   image2: string;
 }
 
@@ -327,11 +328,11 @@ export interface BpSizeChart {
  * Đây là type đích sau khi bóc tách bằng cheerio/regex.
  */
 export interface BpParsedPartnerInfo {
-  idealForPlatforms: string[];   // ["AMZ","Etsy","eBay","Store owner"]
+  idealForPlatforms: string[]; // ["AMZ","Etsy","eBay","Store owner"]
   earlyTracking: boolean | null; // "Yes"/"No"
   processingTime: { min: number; max: number } | null; // "1-5 Business days"
-  carriers: string[];            // ["DPD","DHL","Asendia"]
-  quality: string | null;        // "Good"
-  errorRate: number | null;      // "1%" -> 1
+  carriers: string[]; // ["DPD","DHL","Asendia"]
+  quality: string | null; // "Good"
+  errorRate: number | null; // "1%" -> 1
   printingMethod: string | null; // "DTG Printing"
 }

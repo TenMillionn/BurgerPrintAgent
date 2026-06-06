@@ -7,10 +7,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model } from 'mongoose';
 import MiniSearch from 'minisearch';
-import {
-  KnowledgeDoc,
-  KnowledgeDocDocument,
-} from './schemas/knowledge.schema';
+import { KnowledgeDoc, KnowledgeDocDocument } from './schemas/knowledge.schema';
 import { KnowledgeAiService } from './knowledge-ai.service';
 
 const MAX_CONTENT = 40_000; // reject absurdly large uploads
@@ -138,7 +135,12 @@ export class KnowledgeService {
    * Returns [] when nothing clears the score floor so the agent answers normally.
    */
   async retrieve(query: string): Promise<{
-    matches: Array<{ id: string; title: string; summary: string; content: string }>;
+    matches: Array<{
+      id: string;
+      title: string;
+      summary: string;
+      content: string;
+    }>;
     note: string;
   }> {
     const note =

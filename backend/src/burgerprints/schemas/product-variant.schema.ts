@@ -1,9 +1,9 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
-@Schema({_id: false, collection: 'variants', timestamps: true })
+@Schema({ _id: false, collection: 'variants', timestamps: true })
 export class Variant extends Document<string> {
-    @Prop({ required: true, type: String, primaryKey: true })
+  @Prop({ required: true, type: String, primaryKey: true })
   _id: string;
 
   @Prop({ required: true, unique: true, index: true })

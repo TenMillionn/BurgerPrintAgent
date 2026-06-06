@@ -65,7 +65,10 @@ export class KnowledgeController {
   /** Update a guide's title and/or content (regenerates metadata on content change). */
   @Put(':id')
   update(@Param('id') id: string, @Body() dto: CreateKnowledgeDto) {
-    return this.knowledge.update(id, { title: dto.title, content: dto.content });
+    return this.knowledge.update(id, {
+      title: dto.title,
+      content: dto.content,
+    });
   }
 
   @Post(':id/reprocess')

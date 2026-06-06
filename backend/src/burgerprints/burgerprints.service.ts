@@ -6,6 +6,7 @@ import MiniSearch from 'minisearch';
 import { firstValueFrom } from 'rxjs';
 import { RedisService } from '../redis/redis.service';
 import { CatalogV1Service } from '../catalog-v1/catalog-v1.service';
+import { CreateOrderPayload } from './dto/request/create-order.dto';
 
 /**
  * Client BurgerPrints API v2.0 (FR-006). Header auth: `api-key`.
@@ -375,52 +376,53 @@ export class BurgerPrintsService {
   // ──────────────────────────────────────────────────────────────────────
   // Tool: tạo đơn hàng (UC-06 bonus) — mặc định sandbox để demo an toàn
   // ──────────────────────────────────────────────────────────────────────
-  async createOrder(payload: {
-    shipping: {
-      name: string;
-      address1: string;
-      address2?: string;
-      city: string;
-      state: string;
-      zip: string;
-      country: string;
-      email?: string;
-      phone?: string;
-    };
-    items: Array<{
-      catalog_sku: string;
-      quantity: number;
-      design_url_front?: string;
-      mockup_url_front?: string;
-    }>;
-    reference_order_id?: string;
-    sandbox?: boolean;
-  }): Promise<unknown> {
+  async createOrder(payload: CreateOrderPayload): Promise<unknown> {
     const s = payload.shipping;
     const body: Record<string, unknown> = {
-      shipping_name: s.name,
-      shipping_address1: s.address1,
+      shipping_name: s.name ?? '',
+      shipping_address1: s.address1 ?? '',
       shipping_address2: s.address2 ?? '',
-      shipping_city: s.city,
-      shipping_state: s.state,
-      shipping_zip: s.zip,
+      shipping_city: s.city ?? '',
+      shipping_state: s.state ?? '',
+      shipping_zip: s.zip ?? '',
       shipping_country: s.country,
       shipping_email: s.email ?? '',
       shipping_phone: s.phone ?? '',
       reference_order_id: payload.reference_order_id ?? `agent-${Date.now()}`,
-      items: payload.items.map((it) => ({
-        catalog_sku: it.catalog_sku,
-        quantity: it.quantity,
-        ...(it.design_url_front
-          ? { design_url_front: it.design_url_front }
-          : {}),
-        ...(it.mockup_url_front
-          ? { mockup_url_front: it.mockup_url_front }
-          : {}),
-      })),
       // Mặc định sandbox=true (không phát sinh đơn thật) trừ khi seller xác nhận thật.
       sandbox: payload.sandbox ?? true,
+      items: payload.items.map((it) => {
+        const itemBody: Record<string, unknown> = {
+          quantity: it.quantity,
+        };
+        if (it.catalog_sku) itemBody.catalog_sku = it.catalog_sku;
+        if (it.product_id) itemBody.product_id = it.product_id;
+        if (it.variant_id) itemBody.variant_id = it.variant_id;
+        if (it.design_url_front)
+          itemBody.design_url_front = it.design_url_front;
+        if (it.design_url_back) itemBody.design_url_back = it.design_url_back;
+        if (it.design_url_sleeve)
+          itemBody.design_url_sleeve = it.design_url_sleeve;
+        if (it.mockup_url_front)
+          itemBody.mockup_url_front = it.mockup_url_front;
+        if (it.mockup_url_back) itemBody.mockup_url_back = it.mockup_url_back;
+        if (it.mockup_url_sleeve)
+          itemBody.mockup_url_sleeve = it.mockup_url_sleeve;
+        if (it.reference_item_id)
+          itemBody.reference_item_id = it.reference_item_id;
+        return itemBody;
+      }),
     };
+
+    if (payload.shipping_method) body.shipping_method = payload.shipping_method;
+    if (payload.production_service)
+      body.production_service = payload.production_service;
+    if (payload.additional_service)
+      body.additional_service = payload.additional_service;
+    if (payload.callback_url) body.callback_url = payload.callback_url;
+    if (payload.shipping_label) body.shipping_label = payload.shipping_label;
+    if (payload.fulfillment_partner)
+      body.fulfillment_partner = payload.fulfillment_partner;
 
     try {
       const res = await firstValueFrom(

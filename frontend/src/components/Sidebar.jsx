@@ -30,6 +30,7 @@ export default function Sidebar({
   isAdmin = false,
   onOpenKnowledge,
   onOpenUsers,
+  onCreateOrder,
 }) {
   const { t, locale, setLocale } = useTranslation();
 
@@ -58,6 +59,13 @@ export default function Sidebar({
           <button className="sidebar-item" onClick={onNewChat}>
             <MessageSquarePlus size={19} strokeWidth={1.8} className="sidebar-item-icon" />
             <span className="sidebar-item-label">{t('sidebar.newChat')}</span>
+          </button>
+          <button className="sidebar-item" onClick={onCreateOrder}>
+             {/* I'll use a standard icon for manual order, e.g., ShoppingCart, but since we didn't import it, I'll use BookOpen for now or add the import. */}
+            <span className="sidebar-item-icon" style={{ display: 'flex', alignItems: 'center' }}>
+               <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-shopping-cart"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+            </span>
+            <span className="sidebar-item-label">Create Order</span>
           </button>
           {isAdmin && (
             <button className="sidebar-item" onClick={onOpenKnowledge}>

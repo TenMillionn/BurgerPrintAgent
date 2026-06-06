@@ -11,7 +11,10 @@ import {
   Conversation,
   ConversationDocument,
 } from '../conversation/schemas/conversation.schema';
-import { Message, MessageDocument } from '../conversation/schemas/message.schema';
+import {
+  Message,
+  MessageDocument,
+} from '../conversation/schemas/message.schema';
 
 /** Admin-facing user management: list, view, change role, enable/disable, delete. */
 @Injectable()
@@ -38,7 +41,9 @@ export class AdminUsersService {
     const countBy = new Map(counts.map((c: any) => [String(c._id), c.count]));
 
     return {
-      users: users.map((u: any) => this.toCard(u, countBy.get(String(u._id)) ?? 0)),
+      users: users.map((u: any) =>
+        this.toCard(u, countBy.get(String(u._id)) ?? 0),
+      ),
     };
   }
 

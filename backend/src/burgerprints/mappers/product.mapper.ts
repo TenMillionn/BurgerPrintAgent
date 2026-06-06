@@ -1,4 +1,7 @@
-import { BpListProduct, BpCatalogObject } from '../types/burger-print-catalog.type';
+import {
+  BpListProduct,
+  BpCatalogObject,
+} from '../types/burger-print-catalog.type';
 import { SizeOpt, ColorOpt, Range } from '../schemas/product.schema';
 
 export class ProductMapper {
@@ -22,7 +25,9 @@ export class ProductMapper {
       });
     }
 
-    const { techniques, printAreas } = ProductMapper.parseDecorations(item.decorations);
+    const { techniques, printAreas } = ProductMapper.parseDecorations(
+      item.decorations,
+    );
 
     const productionTime = ProductMapper.parseRange(item.productionTime);
     const region = ProductMapper.determineRegion(item.shortCode);
@@ -76,9 +81,17 @@ export class ProductMapper {
   }
 
   static fromApiDetail(data: any): any {
-    const region = ProductMapper.determineRegion(data.shortCode, data.titleSuffix, data.htmlDesc);
-    const shippingTimeUs = ProductMapper.parseRange(data.shipping?.shippingTimeUs || data.shippingTimeUS);
-    const shippingTimeWW = ProductMapper.parseRange(data.shipping?.shippingTimeWw || data.shippingTimeWW);
+    const region = ProductMapper.determineRegion(
+      data.shortCode,
+      data.titleSuffix,
+      data.htmlDesc,
+    );
+    const shippingTimeUs = ProductMapper.parseRange(
+      data.shipping?.shippingTimeUs || data.shippingTimeUS,
+    );
+    const shippingTimeWW = ProductMapper.parseRange(
+      data.shipping?.shippingTimeWw || data.shippingTimeWW,
+    );
 
     const parsedHtml = ProductMapper.parseHtmlDesc(data.htmlDesc || '');
 
@@ -92,7 +105,10 @@ export class ProductMapper {
       material: parsedHtml.material,
       shippingTimeUs,
       shippingTimeWW,
-      sizeChart: typeof data.sizeChart === 'string' ? data.sizeChart : JSON.stringify(data.sizeChart || {}),
+      sizeChart:
+        typeof data.sizeChart === 'string'
+          ? data.sizeChart
+          : JSON.stringify(data.sizeChart || {}),
       decorations: data.decorations || [],
       relatedProducts: (data.baseInterested || []).map((b: any) => ({
         shortCode: b.shortCode,
@@ -105,20 +121,30 @@ export class ProductMapper {
     };
   }
 
-  static determineRegion(shortCode: string, titleSuffix?: string, htmlDesc?: string): string {
+  static determineRegion(
+    shortCode: string,
+    titleSuffix?: string,
+    htmlDesc?: string,
+  ): string {
     if (shortCode?.toUpperCase().startsWith('US')) return 'US';
     if (shortCode?.toUpperCase().startsWith('EU')) return 'EU';
     if (titleSuffix?.toUpperCase() === 'EU') return 'EU';
-    
+
     const descUpper = (htmlDesc || '').toUpperCase();
     if (descUpper.includes('EU ') || descUpper.includes('EUROPE')) return 'EU';
-    if (descUpper.includes('US ') || descUpper.includes('UNITED STATES')) return 'US';
+    if (descUpper.includes('US ') || descUpper.includes('UNITED STATES'))
+      return 'US';
 
     return 'US'; // Fallback default
   }
 
-  static determineProductCategory(categories: string[], designGroup?: string): string {
-    const allText = [...(categories || []), designGroup || ''].map((c) => c.toLowerCase());
+  static determineProductCategory(
+    categories: string[],
+    designGroup?: string,
+  ): string {
+    const allText = [...(categories || []), designGroup || ''].map((c) =>
+      c.toLowerCase(),
+    );
     if (
       allText.some(
         (t) =>
@@ -197,7 +223,8 @@ export class ProductMapper {
 
     if (obj.catalogType) {
       if (obj.catalogType === 'category') categories.push(name);
-      else if (obj.catalogType === 'sellingPlatform') sellingPlatforms.push(name);
+      else if (obj.catalogType === 'sellingPlatform')
+        sellingPlatforms.push(name);
       else if (obj.catalogType === 'shippingTier') shippingTiers.push(name);
       else if (obj.catalogType === 'collection') collections.push(name);
       else if (obj.catalogType === 'brand') brand.value = name;
@@ -292,7 +319,9 @@ export class ProductMapper {
     return null;
   }
 
-  static parseCreatedDate(createdDate: [number, number, number] | any): Date | null {
+  static parseCreatedDate(
+    createdDate: [number, number, number] | any,
+  ): Date | null {
     if (Array.isArray(createdDate) && createdDate.length >= 3) {
       return new Date(createdDate[0], createdDate[1] - 1, createdDate[2]);
     }
@@ -305,11 +334,21 @@ export class ProductMapper {
     desc?: string,
     searchKeywords?: string | null,
   ): string {
-    const parts = [name || '', aliasName || '', desc || '', searchKeywords || ''];
+    const parts = [
+      name || '',
+      aliasName || '',
+      desc || '',
+      searchKeywords || '',
+    ];
     return parts.filter(Boolean).join(' ').toLowerCase();
   }
 
-  static fromApiVariant(sku: any, shortCode: string, productName: string, options?: any[]): any {
+  static fromApiVariant(
+    sku: any,
+    shortCode: string,
+    productName: string,
+    options?: any[],
+  ): any {
     const colorHex = ProductMapper.findColorHex(sku.colorId, options);
     return {
       sku: sku.sku,
@@ -337,7 +376,9 @@ export class ProductMapper {
     if (Array.isArray(options)) {
       const colorOption = options.find((opt: any) => opt.name === 'color');
       if (colorOption && Array.isArray(colorOption.values)) {
-        const colorVal = colorOption.values.find((val: any) => val.id === colorId);
+        const colorVal = colorOption.values.find(
+          (val: any) => val.id === colorId,
+        );
         if (colorVal && colorVal.value) {
           return colorVal.value;
         }
@@ -354,9 +395,13 @@ export class ProductMapper {
   ): any {
     const daysRaw = detail.description || '';
     const days = ProductMapper.parseDaysRange(daysRaw);
-    const carriers = typeof detail.carriers === 'string'
-      ? detail.carriers.split(',').map((c: string) => c.trim()).filter(Boolean)
-      : [];
+    const carriers =
+      typeof detail.carriers === 'string'
+        ? detail.carriers
+            .split(',')
+            .map((c: string) => c.trim())
+            .filter(Boolean)
+        : [];
 
     return {
       productShortCode: shortCode,

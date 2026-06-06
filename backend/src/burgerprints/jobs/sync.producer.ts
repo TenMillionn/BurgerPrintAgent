@@ -49,15 +49,19 @@ export class SyncProducer {
   }
 
   async enqueueOutOfStockSync() {
-    await this.syncQueue.add('sync-out-of-stock', {}, {
-      jobId: `sync-out-of-stock-${Date.now()}`,
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 5000,
+    await this.syncQueue.add(
+      'sync-out-of-stock',
+      {},
+      {
+        jobId: `sync-out-of-stock-${Date.now()}`,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: true,
+        removeOnFail: false,
       },
-      removeOnComplete: true,
-      removeOnFail: false,
-    });
+    );
   }
 }

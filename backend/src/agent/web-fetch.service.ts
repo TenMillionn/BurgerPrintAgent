@@ -51,7 +51,11 @@ export class WebFetchService {
       for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
         await this.assertPublicHost(current.hostname);
         const res = await this.rawFetch(current);
-        if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+        if (
+          res.status >= 300 &&
+          res.status < 400 &&
+          res.headers.get('location')
+        ) {
           current = new URL(res.headers.get('location') as string, current);
           if (current.protocol !== 'http:' && current.protocol !== 'https:') {
             return this.error(current.href, 'Redirect to a non-http(s) URL');
@@ -62,8 +66,14 @@ export class WebFetchService {
           return this.error(current.href, `Fetch failed: HTTP ${res.status}`);
         }
         contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (!contentType.includes('text/html') && !contentType.includes('text/plain')) {
-          return this.error(current.href, `Unsupported content type: ${contentType || 'unknown'}`);
+        if (
+          !contentType.includes('text/html') &&
+          !contentType.includes('text/plain')
+        ) {
+          return this.error(
+            current.href,
+            `Unsupported content type: ${contentType || 'unknown'}`,
+          );
         }
         html = await this.readBounded(res);
         break;
@@ -93,7 +103,9 @@ export class WebFetchService {
       const dom = new JSDOM(html, { url });
       const doc = dom.window.document;
       title = doc.title || '';
-      doc.querySelectorAll('script,style,noscript,svg,iframe').forEach((n) => n.remove());
+      doc
+        .querySelectorAll('script,style,noscript,svg,iframe')
+        .forEach((n) => n.remove());
       const article = new Readability(doc).parse();
       if (article?.content) {
         title = article.title || title;
@@ -118,7 +130,9 @@ export class WebFetchService {
     return {
       url,
       title: title.trim() || new URL(url).hostname,
-      markdown: truncated ? markdown.slice(0, MAX_MARKDOWN_CHARS) + '\n\n…[truncated]' : markdown,
+      markdown: truncated
+        ? markdown.slice(0, MAX_MARKDOWN_CHARS) + '\n\n…[truncated]'
+        : markdown,
       truncated,
     };
   }
@@ -133,7 +147,8 @@ export class WebFetchService {
         redirect: 'manual', // we follow + re-validate each hop ourselves
         signal: ac.signal,
         headers: {
-          'User-Agent': 'BurgerPrintsAgent/1.0 (+https://burgerprint.vocatee.com)',
+          'User-Agent':
+            'BurgerPrintsAgent/1.0 (+https://burgerprint.vocatee.com)',
           Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5',
         },
       });

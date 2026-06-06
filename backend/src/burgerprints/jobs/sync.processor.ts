@@ -9,9 +9,17 @@ import { firstValueFrom } from 'rxjs';
 import { Product } from '../schemas/product.schema';
 import { Variant } from '../schemas/product-variant.schema';
 import { ShippingRate } from '../schemas/product-shipping.schema';
-import { SyncJobData, SyncShippingJobData, SyncProducer } from './sync.producer';
+import {
+  SyncJobData,
+  SyncShippingJobData,
+  SyncProducer,
+} from './sync.producer';
 import { ProductMapper } from '../mappers/product.mapper';
-import { BpDetailResponse, BpProductDetail, BpLocationsResponse } from '../types/burger-print-catalog.type';
+import {
+  BpDetailResponse,
+  BpProductDetail,
+  BpLocationsResponse,
+} from '../types/burger-print-catalog.type';
 import { CatalogV1Service } from '../../catalog-v1/catalog-v1.service';
 
 @Processor('burgerprints-sync-queue', { concurrency: 5 })
@@ -33,13 +41,19 @@ export class SyncProcessor extends WorkerHost {
     private readonly catalogV1Service: CatalogV1Service,
   ) {
     super();
-    this.apiBaseUrl = this.configService.get<string>('burgerprints.baseUrl') || 'https://api.burgerprints.com/v2';
-    this.catalogV1BaseUrl = process.env.CATALOG_V1_BASE_URL || 'https://catalog-api.burgerprints.com/api/v1/catalogsV2';
+    this.apiBaseUrl =
+      this.configService.get<string>('burgerprints.baseUrl') ||
+      'https://api.burgerprints.com/v2';
+    this.catalogV1BaseUrl =
+      process.env.CATALOG_V1_BASE_URL ||
+      'https://catalog-api.burgerprints.com/api/v1/catalogsV2';
   }
 
   async process(job: Job<any, any, string>): Promise<any> {
     const jobName = job.name;
-    this.logger.log(`Processing job ${jobName} for product ${job.data?.shortCode}`);
+    this.logger.log(
+      `Processing job ${jobName} for product ${job.data?.shortCode}`,
+    );
 
     try {
       switch (jobName) {
@@ -47,7 +61,9 @@ export class SyncProcessor extends WorkerHost {
           await this.handleSyncDetail(job as Job<SyncJobData, any, string>);
           break;
         case 'sync-shipping':
-          await this.handleSyncShipping(job as Job<SyncShippingJobData, any, string>);
+          await this.handleSyncShipping(
+            job as Job<SyncShippingJobData, any, string>,
+          );
           break;
         case 'sync-out-of-stock':
           await this.handleSyncOutOfStock();
@@ -55,9 +71,14 @@ export class SyncProcessor extends WorkerHost {
         default:
           this.logger.warn(`Unknown job name: ${jobName}`);
       }
-      this.logger.log(`Completed job ${jobName} for product ${job.data?.shortCode}`);
+      this.logger.log(
+        `Completed job ${jobName} for product ${job.data?.shortCode}`,
+      );
     } catch (error) {
-      this.logger.error(`Failed job ${jobName} for product ${job.data?.shortCode}`, error);
+      this.logger.error(
+        `Failed job ${jobName} for product ${job.data?.shortCode}`,
+        error,
+      );
       this.logger.error(error.stack);
       throw error; // Let BullMQ retry
     }
@@ -75,13 +96,16 @@ export class SyncProcessor extends WorkerHost {
         }
       }
 
-      const processingTimes = await this.catalogV1Service.getProcessingByPartner(shortCode);
+      const processingTimes =
+        await this.catalogV1Service.getProcessingByPartner(shortCode);
 
-      const partners = Array.from(uniquePartnersMap.entries()).map(([id, name]) => ({
-        partner_id: id,
-        partner_name: name,
-        processingTime: processingTimes[id] || null,
-      }));
+      const partners = Array.from(uniquePartnersMap.entries()).map(
+        ([id, name]) => ({
+          partner_id: id,
+          partner_name: name,
+          processingTime: processingTimes[id] || null,
+        }),
+      );
 
       if (partners.length > 0) {
         await this.productModel.updateOne(
@@ -112,10 +136,15 @@ export class SyncProcessor extends WorkerHost {
     );
   }
 
-  private async fetchAndProcessDetail(shortCode: string, aliasName: string): Promise<BpProductDetail | null> {
+  private async fetchAndProcessDetail(
+    shortCode: string,
+    aliasName: string,
+  ): Promise<BpProductDetail | null> {
     if (!aliasName) return null;
     const url = `${this.catalogV1BaseUrl}/alias/${aliasName}`;
-    const response = await firstValueFrom(this.httpService.get<BpDetailResponse>(url));
+    const response = await firstValueFrom(
+      this.httpService.get<BpDetailResponse>(url),
+    );
     const data = response.data.data;
 
     if (!data)
@@ -152,7 +181,9 @@ export class SyncProcessor extends WorkerHost {
 
   private async fetchAndProcessShipping(shortCode: string, partnerId: string) {
     const url = `${this.catalogV1BaseUrl}/locations?shortCode=${shortCode}&partnerId=${partnerId}`;
-    const response = await firstValueFrom(this.httpService.get<BpLocationsResponse>(url));
+    const response = await firstValueFrom(
+      this.httpService.get<BpLocationsResponse>(url),
+    );
     const data = response.data.data || [];
 
     for (const country of data) {
@@ -195,15 +226,17 @@ export class SyncProcessor extends WorkerHost {
         const url = `${this.apiBaseUrl}/product/outofstock?page=${page}&page_size=1000`;
         const res = await firstValueFrom(
           this.httpService.get(url, {
-            headers: { 'api-key': this.configService.get<string>('burgerprints.apiKey') },
+            headers: {
+              'api-key': this.configService.get<string>('burgerprints.apiKey'),
+            },
             timeout: 20_000,
-          })
+          }),
         );
         const data = res.data?.data ?? {};
         total = data.total ?? skus.length;
         const result: any[] = data.result ?? data.data ?? [];
         if (result.length === 0) break;
-        
+
         for (const item of result) {
           if (Array.isArray(item.sku)) {
             for (const sku of item.sku) skus.push(sku);
@@ -212,10 +245,15 @@ export class SyncProcessor extends WorkerHost {
         page += 1;
       }
 
-      this.logger.log(`Fetched ${skus.length} out of stock SKUs. Updating variants...`);
+      this.logger.log(
+        `Fetched ${skus.length} out of stock SKUs. Updating variants...`,
+      );
 
       // Reset all to inStock: true first
-      await this.productVariantModel.updateMany({}, { $set: { inStock: true } });
+      await this.productVariantModel.updateMany(
+        {},
+        { $set: { inStock: true } },
+      );
 
       // Set inStock: false for the fetched SKUs
       if (skus.length > 0) {
@@ -225,14 +263,18 @@ export class SyncProcessor extends WorkerHost {
           const chunk = skus.slice(i, i + chunkSize);
           await this.productVariantModel.updateMany(
             { sku: { $in: chunk } },
-            { $set: { inStock: false } }
+            { $set: { inStock: false } },
           );
         }
       }
-      
-      this.logger.log(`Successfully updated out of stock statuses for ${skus.length} SKUs.`);
+
+      this.logger.log(
+        `Successfully updated out of stock statuses for ${skus.length} SKUs.`,
+      );
     } catch (err) {
-      this.logger.error(`Failed to sync out of stock: ${(err as Error).message}`);
+      this.logger.error(
+        `Failed to sync out of stock: ${(err as Error).message}`,
+      );
       throw err;
     }
   }
