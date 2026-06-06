@@ -4,6 +4,7 @@ import { MemoryModule } from '../memory/memory.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { AGENT_RUNTIME } from './agent-runtime.port';
 import { PiAgentCoreRuntime } from './pi-agent-core.runtime';
+import { WebFetchService } from './web-fetch.service';
 
 /**
  * Provide AgentRuntime = PiAgentCoreRuntime (in-process pi-agent-core).
@@ -11,7 +12,10 @@ import { PiAgentCoreRuntime } from './pi-agent-core.runtime';
  */
 @Module({
   imports: [BurgerPrintsModule, MemoryModule, KnowledgeModule],
-  providers: [{ provide: AGENT_RUNTIME, useClass: PiAgentCoreRuntime }],
+  providers: [
+    WebFetchService,
+    { provide: AGENT_RUNTIME, useClass: PiAgentCoreRuntime },
+  ],
   exports: [AGENT_RUNTIME],
 })
 export class AgentModule {}
