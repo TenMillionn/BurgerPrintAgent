@@ -60,6 +60,7 @@ const vi = {
     create_order: 'Tạo đơn hàng',
     search_history: 'Tìm trong lịch sử',
     retrieve_knowledge: 'Tra cứu kiến thức',
+    fetch_url: 'Đọc trang web',
   },
   knowledge: {
     title: 'Kho kiến thức',

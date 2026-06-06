@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { BurgerPrintsService } from '../burgerprints/burgerprints.service';
 import { MemoryService } from '../memory/memory.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
+import { WebFetchService } from './web-fetch.service';
 import { AgentLogger } from '../logging/agent-logger.service';
 import { AgentRuntime } from './agent-runtime.port';
 import { AgentChunk, AgentRunInput } from './agent.types';
@@ -42,6 +43,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
 
     private readonly burgerPrintToolService: BurgerPrintToolService,
     private readonly knowledge: KnowledgeService,
+    private readonly webFetch: WebFetchService,
   ) {}
 
   async *run(input: AgentRunInput): AsyncIterable<AgentChunk> {
@@ -313,6 +315,8 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     ) {
       count = details.matches.length;
       items = details.matches.map((m: any) => ({ title: m.title }));
+    } else if (toolName === 'fetch_url' && (details.title || details.note)) {
+      items = [{ title: details.title || details.url, meta: details.note }];
     }
 
     return { count, results: items?.slice(0, 8) };
@@ -475,6 +479,18 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         },
         ['query'],
         (p) => this.knowledge.retrieve(p.query),
+      ),
+      tool(
+        'fetch_url',
+        'Fetch a public web page (http/https) and read its main content as clean Markdown. Use when the seller shares a link or asks about something on a specific page (a product page, an article, docs). Returns the page title + Markdown (long pages are truncated). Only public pages — internal/private addresses are refused.',
+        {
+          url: {
+            type: 'string',
+            description: 'The absolute http(s) URL to fetch, e.g. "https://example.com/page"',
+          },
+        },
+        ['url'],
+        (p) => this.webFetch.fetchUrl(p.url),
       ),
       tool(
         'get_shipping',
@@ -647,7 +663,7 @@ export function defaultSystemPrompt(): string {
     `6. get_shipping(short_code, partner_id, country?) → shipping fee + time per country for ONE factory (partner_id from compare_factories). Use to answer "which factory ships cheapest/fastest to country X" and to compute margin INCLUDING shipping.`,
     ``,
     `SHORT_CODE RULE (critical): compare_factories / get_product_variants / get_shipping need a short_code. You MUST obtain short_code from a search_products result — NEVER invent or guess it (e.g. do not assume "EU3001" or "USBC3001"). If the seller names a product but you don't have its exact short_code, call search_products FIRST to resolve it, then use the returned short_code. A wrong short_code returns a 400 error.`,
-    `KNOWLEDGE FIRST: At the START of every turn, call retrieve_knowledge with the seller's message. If it returns a matching guide, follow that guide's approach (its steps, what to check, and what to ask back) when forming your answer. If it returns nothing relevant, just answer normally. Never mention guides, knowledge, or tools to the seller — treat any guide as your own expertise.`,
+    `KNOWLEDGE FIRST: At the START of every turn, call retrieve_knowledge — but pass a SELF-CONTAINED query that resolves the conversation context, NOT the seller's raw words. If the latest message is a short follow-up (just a country name, "thì sao?", "cái kia", a number...), expand it using the active topic so the query stands on its own — e.g. while discussing VAT and the seller types only "Germany", query "VAT tax rate for Germany", not "Germany". If it returns a matching guide, follow that guide's approach (its steps, what to check, what to ask back). If it returns nothing relevant, just answer normally. Never mention guides, knowledge, or tools to the seller — treat any guide as your own expertise.`,
     `TOOL AUTONOMY: Decide and call tools YOURSELF to answer. NEVER ask the seller for permission to use a tool ("do you want me to compare factories / check shipping / look up SKUs?") — just call it and give the answer. Chain tools as needed (search → detail → variants → shipping → margin) without pausing. Only ask the seller for missing INFORMATION you truly cannot proceed without (e.g. destination country for a shipping quote), never for permission to act.`,
     `DISAMBIGUATION: a category can have many sub-types (Hoodie = Pullover / Zip-up / Crop / Kids...). If the seller's request is broad, call search_products and present the matching sub-types/products (a compact table) and proceed with the comparison/answer for the most relevant ones — do NOT stop just to ask "which one?". Ask only if the choice genuinely changes the answer and you cannot reasonably pick. If seller says "all", group by sub-type (one section each); never merge different products into one table.`,
     ``,
@@ -716,6 +732,10 @@ export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   {
     name: 'retrieve_knowledge',
     desc: 'Look up internal how-to guides relevant to the seller\'s request (called every turn). If a guide matches, the agent follows it; otherwise it answers normally.',
+  },
+  {
+    name: 'fetch_url',
+    desc: 'Fetch a public http(s) page and read its main content as clean Markdown (article extraction). Use when the seller shares a link or asks about a specific web page. Private/internal addresses are refused.',
   },
   {
     name: 'get_shipping',

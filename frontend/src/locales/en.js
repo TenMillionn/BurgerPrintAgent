@@ -60,6 +60,7 @@ const en = {
     create_order: 'Create order',
     search_history: 'Search history',
     retrieve_knowledge: 'Check knowledge',
+    fetch_url: 'Read web page',
   },
   knowledge: {
     title: 'Knowledge base',
