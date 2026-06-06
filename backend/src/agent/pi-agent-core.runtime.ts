@@ -7,23 +7,23 @@ import { AgentRuntime } from './agent-runtime.port';
 import { AgentChunk, AgentRunInput } from './agent.types';
 
 /**
- * Adapter bọc `@earendil-works/pi-agent-core` (bộ "Pi" toolkit của earendil-works,
- * built trên `@earendil-works/pi-ai`). pi-agent-core là **push-based**: ta `subscribe`
- * các AgentEvent và gọi `await agent.prompt(...)`. Adapter này bắc cầu push → pull để
- * khớp port `AgentRuntime.run(): AsyncIterable<AgentChunk>` mà phần còn lại của hệ thống
- * (controller/SSE/session) đang dùng — nên controller không cần đổi.
+ * Adapter around `@earendil-works/pi-agent-core` (the "Pi" toolkit by earendil-works,
+ * built on `@earendil-works/pi-ai`). pi-agent-core is **push-based**: we `subscribe`
+ * to AgentEvents and call `await agent.prompt(...)`. This adapter bridges push → pull to
+ * match the `AgentRuntime.run(): AsyncIterable<AgentChunk>` port that the rest of the system
+ * (controller/SSE/session) uses — so the controller does not need to change.
  *
- * Map sự kiện:
+ * Event mapping:
  *   message_update + assistantMessageEvent.text_delta  → AgentChunk token
  *   tool_execution_start / tool_execution_end          → AgentChunk tool (running/done)
  *   agent_end (state.errorMessage)                     → AgentChunk error
  *   agent_end                                          → AgentChunk done
  *
- * Tham chiếu: https://www.npmjs.com/package/@earendil-works/pi-agent-core (README "Event Flow").
+ * Reference: https://www.npmjs.com/package/@earendil-works/pi-agent-core (README "Event Flow").
  */
 
-// Dynamic import gián tiếp: pi packages là ESM-only. Dùng Function để giữ `import()` thật
-// ở runtime, tránh tsc (module=commonjs) hạ cấp thành require() làm vỡ ESM.
+// Indirect dynamic import: pi packages are ESM-only. Use Function to keep a real `import()`
+// at runtime so tsc (module=commonjs) does not downgrade it to require() and break ESM.
 const esmImport = new Function('m', 'return import(m)') as (
   m: string,
 ) => Promise<any>;
@@ -66,22 +66,22 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     }
 
     const provider = this.config.get<string>('llm.provider') as string;
-    // Model override theo phiên (nếu seller chọn) → fallback LLM_MODEL trong env.
+    // Per-session model override (if the seller chose one) → fallback to LLM_MODEL from env.
     const modelId =
       (input.model && input.model.trim()) ||
       (this.config.get<string>('llm.model') as string);
 
     let agent: any;
     try {
-      // pi-ai tự đọc API key từ env (ANTHROPIC_API_KEY / OPENAI_API_KEY).
+      // pi-ai reads the API key from env (ANTHROPIC_API_KEY / OPENAI_API_KEY).
       const openaiBaseUrl = this.config.get<string>('llm.openaiBaseUrl');
       let model: any;
 
       if (provider === 'openai' && openaiBaseUrl) {
-        // Proxy OpenAI-compatible (vilao/OpenRouter/Azure/local): model id có thể
-        // KHÔNG nằm trong registry pi-ai (vd "gx/gpt-5.4"). Dựng từ template hợp lệ
-        // rồi override id + baseUrl, và ép dùng /chat/completions (proxy thường hỗ trợ
-        // completions, không phải Responses API → tránh lỗi "messages null").
+        // OpenAI-compatible proxy (vilao/OpenRouter/Azure/local): the model id may
+        // NOT be in the pi-ai registry (e.g. "gx/gpt-5.4"). Build from a valid template
+        // then override id + baseUrl, and force /chat/completions (proxies usually support
+        // completions, not the Responses API → avoids the "messages null" error).
         model = getModel('openai', 'gpt-4o');
         if (modelId) model.id = modelId;
         model.baseUrl = openaiBaseUrl;
@@ -90,8 +90,8 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         try {
           model = getModel(provider, modelId);
         } catch {
-          // modelId không có trong registry pi-ai (vd model mới: "gpt-5.4") →
-          // dựng từ template gpt-4o rồi override id; endpoint OpenAI tự nhận id.
+          // modelId not in the pi-ai registry (e.g. a new model: "gpt-5.4") →
+          // build from the gpt-4o template then override id; the OpenAI endpoint accepts it.
           this.logger.warn(
             `Model "${modelId}" not in pi-ai registry — building from gpt-4o template.`,
           );
@@ -105,7 +105,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           systemPrompt: this.buildSystemPrompt(input),
           model,
           tools: this.buildTools(input),
-          // Lịch sử trước lượt hiện tại (lượt user hiện tại được gửi qua prompt()).
+          // History before the current turn (the current user turn is sent via prompt()).
           messages: this.toAgentMessages(input),
         },
       });
@@ -194,7 +194,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       }
     });
 
-    // Kích hoạt vòng lặp agent (không await ở đây để vừa chạy vừa tiêu thụ event).
+    // Kick off the agent loop (not awaited here so we consume events while it runs).
     agent.prompt(input.message).catch((err: Error) => {
       void this.agentLog.turnEnd(input.sessionId, {
         reply: finalText,
@@ -210,7 +210,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       }
     });
 
-    // Tiêu thụ queue, dừng khi đã done và rỗng.
+    // Consume the queue; stop when done and empty.
     while (true) {
       if (queue.length > 0) {
         yield queue.shift() as AgentChunk;
@@ -221,7 +221,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     }
   }
 
-  /** System prompt: dùng custom (nếu seller chỉnh) hoặc mặc định. */
+  /** System prompt: the custom one (if the seller edited it) or the default. */
   private buildSystemPrompt(input: AgentRunInput): string {
     if (input.systemPrompt && input.systemPrompt.trim())
       return input.systemPrompt;
@@ -229,12 +229,12 @@ export class PiAgentCoreRuntime implements AgentRuntime {
   }
 
   /**
-   * Map lịch sử phiên (trừ lượt user hiện tại) sang AgentMessage[] của pi.
-   * Lưu ý: pi `AssistantMessage.content` phải là MẢNG content-block (không phải string),
-   * còn `UserMessage.content` chấp nhận string.
+   * Map the session history (excluding the current user turn) to pi's AgentMessage[].
+   * Note: pi `AssistantMessage.content` must be an ARRAY of content blocks (not a string),
+   * while `UserMessage.content` accepts a string.
    */
   private toAgentMessages(input: AgentRunInput): unknown[] {
-    const prior = input.history.slice(0, -1); // bỏ lượt user hiện tại (gửi qua prompt())
+    const prior = input.history.slice(0, -1); // drop the current user turn (sent via prompt())
     return prior.map((t) => {
       const timestamp = Date.parse(t.ts) || undefined;
       if (t.role === 'assistant') {
@@ -248,7 +248,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     });
   }
 
-  /** Trích vài kết quả đầu từ output tool để show trong timeline (như "8 results"). */
+  /** Extract a few top results from a tool output for the timeline (e.g. "8 results"). */
   private extractToolResults(
     toolName: string,
     details: any,
@@ -292,7 +292,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       const oid = details.result?.order_id;
       if (oid)
         items = [
-          { title: `Đơn ${oid}`, meta: details.sandbox ? 'sandbox' : 'thật' },
+          { title: `Order ${oid}`, meta: details.sandbox ? 'sandbox' : 'live' },
         ];
     } else if (toolName === 'get_shipping' && Array.isArray(details.shipping)) {
       count = details.total_countries ?? details.shipping.length;
@@ -307,7 +307,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     return { count, results: items?.slice(0, 8) };
   }
 
-  /** Bộ tool tra cứu BurgerPrints API v2.0 (mỗi tool trả dữ liệu compact). */
+  /** BurgerPrints API v2.0 lookup tools (each returns compact data). */
   private buildTools(input: AgentRunInput): unknown[] {
     const tool = (
       name: string,
@@ -579,7 +579,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     ];
   }
 
-  /** Tính margin deterministic (server-side) — tránh LLM làm toán sai. */
+  /** Compute margin deterministically (server-side) — avoids the LLM doing the math wrong. */
   private calcMargin(items: any[]): unknown {
     const round = (n: number) => Math.round(n * 100) / 100;
     return {
@@ -605,7 +605,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
   }
 }
 
-/** Default system prompt (export để controller trả về cho FE chỉnh sửa). */
+/** Default system prompt (exported so the controller can return it to the FE for editing). */
 export function defaultSystemPrompt(): string {
   return [
     `You are BurgerPrintsAgent — a POD (print-on-demand) fulfillment catalog assistant for BurgerPrints sellers.`,
@@ -613,9 +613,10 @@ export function defaultSystemPrompt(): string {
     ``,
     `LANGUAGE: Always reply in the SAME language as the seller's latest message (auto-detect).`,
     `STYLE: Be concise and focused — answer what the seller asked, and include the relevant supporting details (price, factory, sizes, key facts) so the answer is useful and complete. Don't be curt/one-liner: give enough context to act, but skip preamble, restating the question, and data they didn't ask for. Lead with the answer, then the supporting facts. Use a compact markdown table when comparing multiple items; a short paragraph or bullet list otherwise. Do NOT end every reply with a follow-up suggestion — offer a next step only when it genuinely helps, in one short line.`,
+    `VOICE: Talk like a friendly, knowledgeable POD consultant — natural and human, NOT technical. Present information as your own findings; never expose the machinery — do NOT mention "tools", "the API", "the data returned", function/field names (base_cost, partner_id, short_code, catalog_sku, metadata), or your internal steps. Use plain business wording (base cost, factory, shipping fee, product code), not raw field names. Never write phrases like "here is the data the tool returned" or "the tool found ..."; just state the answer as if you simply know it. If something is unavailable, say so plainly (e.g. "I don't have a shipping quote to that country yet") without blaming a tool/API. Show SKUs/codes only when the seller needs them to order, as product info — not as internal jargon.`,
     ``,
     `TOOLS & WORKFLOW:`,
-    `1. search_products(category, market?, max_base_cost?) → products by type/FEATURE in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. category is full-text over name + description, so you can search by material ("cotton", "ring-spun"), print technique ("DTG"/"DTF") or feature ("long sleeve", "fleece"). Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category. IMPORTANT: if the seller names a SPECIFIC product/model (e.g. "Bella + Canvas 3001", "Gildan 18600"), pass that exact name as category (matching is token/punctuation-insensitive) — do NOT search the generic type, because results are sorted by price and capped, so a specific (pricier) model would be hidden. If total_matched > products returned and you don't see the named product, refine the keyword before concluding it doesn't exist. LANGUAGE: the catalog is in ENGLISH — category MUST be an English keyword. Translate the seller's word (e.g. Vietnamese "áo" → "t-shirt"/"shirt", "áo khoác/hoodie" → "hoodie", "quần" → "pants"). If the product type is generic or unclear, OMIT category and filter by max_base_cost only (then summarise the cheapest options) — never pass a non-English word as category.`,
+    `1. search_products(category, market?, max_base_cost?) → products by type/FEATURE in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. category is full-text over name + description, so you can search by material ("cotton", "ring-spun"), print technique ("DTG"/"DTF") or feature ("long sleeve", "fleece"). Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category. IMPORTANT: if the seller names a SPECIFIC product/model (e.g. "Bella + Canvas 3001", "Gildan 18600"), pass that exact name as category (matching is token/punctuation-insensitive) — do NOT search the generic type, because results are sorted by price and capped, so a specific (pricier) model would be hidden. If total_matched > products returned and you don't see the named product, refine the keyword before concluding it doesn't exist. LANGUAGE: the catalog is in ENGLISH — category MUST be an English keyword. Translate the seller's word from any language to the English catalog term (a generic "shirt/tee" word → "t-shirt", an outerwear word → "hoodie"/"jacket", a "pants/trousers" word → "pants"). If the product type is generic or unclear, OMIT category and filter by max_base_cost only (then summarize the cheapest options) — never pass a non-English word as category.`,
     `2. compare_factories(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use after a specific product is chosen, to compare factories or for margin.`,
     `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price, in_stock) for a product. Use for specific color/size or before ordering.`,
     `4. create_order(shipping, items, sandbox?) → place a fulfillment order. Default sandbox=true (test). ONLY after the seller confirms SKU + quantity + shipping address.`,
@@ -623,7 +624,8 @@ export function defaultSystemPrompt(): string {
     `6. get_shipping(short_code, partner_id, country?) → shipping fee + time per country for ONE factory (partner_id from compare_factories). Use to answer "which factory ships cheapest/fastest to country X" and to compute margin INCLUDING shipping.`,
     ``,
     `SHORT_CODE RULE (critical): compare_factories / get_product_variants / get_shipping need a short_code. You MUST obtain short_code from a search_products result — NEVER invent or guess it (e.g. do not assume "EU3001" or "USBC3001"). If the seller names a product but you don't have its exact short_code, call search_products FIRST to resolve it, then use the returned short_code. A wrong short_code returns a 400 error.`,
-    `DISAMBIGUATION: a category can have many sub-types (Hoodie = Pullover / Zip-up / Crop / Kids...). Do NOT assume one product. First search_products to list sub-types, show a short summary, ask which one — THEN compare_factories for the chosen product. If seller says "all", group by sub-type (one section each); never merge different products into one table.`,
+    `TOOL AUTONOMY: Decide and call tools YOURSELF to answer. NEVER ask the seller for permission to use a tool ("do you want me to compare factories / check shipping / look up SKUs?") — just call it and give the answer. Chain tools as needed (search → detail → variants → shipping → margin) without pausing. Only ask the seller for missing INFORMATION you truly cannot proceed without (e.g. destination country for a shipping quote), never for permission to act.`,
+    `DISAMBIGUATION: a category can have many sub-types (Hoodie = Pullover / Zip-up / Crop / Kids...). If the seller's request is broad, call search_products and present the matching sub-types/products (a compact table) and proceed with the comparison/answer for the most relevant ones — do NOT stop just to ask "which one?". Ask only if the choice genuinely changes the answer and you cannot reasonably pick. If seller says "all", group by sub-type (one section each); never merge different products into one table.`,
     ``,
     `KEY DATA FACTS:`,
     `- "Factory" = partner_name. One product is fulfilled by MANY factories at different base costs.`,
@@ -647,9 +649,9 @@ export function defaultSystemPrompt(): string {
 }
 
 /**
- * Danh sách model cho FE chọn. Override qua env LLM_AVAILABLE_MODELS
- * (vd "gpt-4o,gpt-4o-mini,claude-sonnet-4-5"). Lưu ý: model phải hợp lệ với
- * provider đang cấu hình (LLM_PROVIDER) — nếu không sẽ lỗi khi chạy.
+ * Models the FE can choose from. Override via env LLM_AVAILABLE_MODELS
+ * (e.g. "gpt-4o,gpt-4o-mini,claude-sonnet-4-5"). Note: the model must be valid for
+ * the configured provider (LLM_PROVIDER) — otherwise it errors at runtime.
  */
 export const AVAILABLE_MODELS: Array<{ id: string; label: string }> = process
   .env.LLM_AVAILABLE_MODELS
@@ -665,7 +667,7 @@ export const AVAILABLE_MODELS: Array<{ id: string; label: string }> = process
       { id: 'gpt-5.4', label: 'GPT-5.4' },
     ];
 
-/** Tóm tắt các tool (name + ý nghĩa) để FE hiển thị cho người viết prompt. */
+/** Tool summaries (name + meaning) for the FE to show to the prompt editor. */
 export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   {
     name: 'search_products',
