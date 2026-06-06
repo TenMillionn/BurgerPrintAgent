@@ -1,13 +1,13 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   PanelLeftClose,
-  PanelLeftOpen,
   MessageSquarePlus,
-  MessagesSquare,
   Globe,
   LogOut,
   Sun,
   Moon,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { useTranslation } from '../i18n';
 
@@ -20,13 +20,13 @@ export default function Sidebar({
   userEmail,
   theme,
   onToggleTheme,
+  conversations = [],
+  activeId,
+  onSelect,
+  onRename,
+  onDelete,
 }) {
   const { t, locale, setLocale } = useTranslation();
-
-  const items = [
-    { icon: MessageSquarePlus, label: t('sidebar.newChat'), action: onNewChat },
-    { icon: MessagesSquare, label: t('sidebar.history'), action: null },
-  ];
 
   return (
     <motion.aside
@@ -48,23 +48,56 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* Navigation */}
+        {/* New chat */}
         <nav className="sidebar-nav">
-          {items.map((item, i) => (
-            <button
-              key={i}
-              className="sidebar-item"
-              onClick={item.action || undefined}
-              disabled={!item.action}
-            >
-              <item.icon size={19} strokeWidth={1.8} className="sidebar-item-icon" />
-              <span className="sidebar-item-label">{item.label}</span>
-            </button>
-          ))}
+          <button className="sidebar-item" onClick={onNewChat}>
+            <MessageSquarePlus size={19} strokeWidth={1.8} className="sidebar-item-icon" />
+            <span className="sidebar-item-label">{t('sidebar.newChat')}</span>
+          </button>
         </nav>
 
-        {/* Spacer */}
-        <div className="sidebar-spacer" />
+        {/* Conversation history */}
+        <div className="sidebar-history">
+          <div className="sidebar-history-label">{t('sidebar.history')}</div>
+          <div className="sidebar-history-list">
+            {conversations.length === 0 && (
+              <div className="sidebar-history-empty">{t('sidebar.noConversations')}</div>
+            )}
+            {conversations.map((c) => (
+              <div
+                key={c.id}
+                className={'sidebar-convo' + (c.id === activeId ? ' is-active' : '')}
+                onClick={() => onSelect && onSelect(c.id)}
+                title={c.title}
+              >
+                <span className="sidebar-convo-title">{c.title || t('sidebar.untitled')}</span>
+                <span className="sidebar-convo-actions">
+                  <button
+                    className="sidebar-convo-btn"
+                    title={t('sidebar.rename')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const next = window.prompt(t('sidebar.rename'), c.title || '');
+                      if (next != null) onRename && onRename(c.id, next);
+                    }}
+                  >
+                    <Pencil size={14} strokeWidth={1.8} />
+                  </button>
+                  <button
+                    className="sidebar-convo-btn"
+                    title={t('sidebar.delete')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm(t('sidebar.deleteConfirm'))) onDelete && onDelete(c.id);
+                    }}
+                  >
+                    <Trash2 size={14} strokeWidth={1.8} />
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* Bottom actions: Theme + Language */}
         <div className="sidebar-bottom-actions">
