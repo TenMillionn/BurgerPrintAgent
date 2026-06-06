@@ -151,6 +151,22 @@ export class SessionService {
     }
   }
 
+  /** Ensure an ephemeral (Redis-only) session exists — used by guest chat. */
+  async ensureEphemeralSession(id: string): Promise<void> {
+    if (!(await this.exists(id))) {
+      await this.createSession(id);
+    }
+  }
+
+  /**
+   * Append a turn to Redis ONLY (no MongoDB) — for guest sessions that are not
+   * persisted. TTL-expired with the rest of the ephemeral session.
+   */
+  async appendTurnEphemeral(id: string, turn: ConversationTurn): Promise<void> {
+    await this.redis.rpush(turnsKey(id), JSON.stringify(turn));
+    await this.touch(id);
+  }
+
   /**
    * Record a failed assistant turn: no corrupt reply content, just the error and
    * any tool steps that ran, so the transcript stays clean (FR-018).
