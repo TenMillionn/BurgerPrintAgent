@@ -7,9 +7,11 @@ import {
 } from '@nestjs/terminus';
 import { RedisService } from '../redis/redis.service';
 import { Public } from '../auth/decorators/public.decorator';
+import { ApiTags } from '@nestjs/swagger';
 
 @Public()
 @Controller('health')
+@ApiTags('Health APIs')
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,
