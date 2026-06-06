@@ -95,9 +95,13 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  // Keep the user signed in across reloads: only show the login modal when there
-  // is no saved access token.
-  const [showModal, setShowModal] = useState(!savedAuth?.token);
+  // Login is optional — guests can chat right away. The modal is opened on
+  // demand (login banner / button), never forced.
+  const [showModal, setShowModal] = useState(false);
+  // Ephemeral guest session id — in-memory only, so a refresh starts fresh.
+  const [guestSid] = useState(
+    () => 'guest-' + (window.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)),
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
@@ -338,10 +342,10 @@ export default function App() {
     }
   }
 
-  // "Continue as guest" signs in with the default demo account (per-user data
-  // isolation now requires a real account).
+  // "Continue as guest" just closes the modal — chat runs on the public,
+  // login-free guest endpoint (ephemeral, not persisted).
   function handleGuestChat() {
-    handleEmailLogin();
+    setShowModal(false);
   }
 
   async function register() {
@@ -469,13 +473,31 @@ export default function App() {
     loadConversations();
   }
 
+  // Read an SSE Response body and feed each event block to handleEvent.
+  async function consumeStream(res) {
+    if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const blocks = buf.split('\n\n');
+      buf = blocks.pop() || '';
+      for (const block of blocks) handleEvent(block);
+    }
+  }
+
   async function send() {
     const msg = input.trim();
     if (!msg || busy) return;
+    const isGuest = !token;
 
-    // Create a real persisted conversation lazily on the first message.
+    // Authed users get a real persisted conversation (lazy-created); guests use
+    // the public, ephemeral guest stream and persist nothing.
     let sid = sessionId;
-    if (!sid) {
+    if (!isGuest && !sid) {
       try {
         const r = await apiFetch('/conversations', { method: 'POST' });
         const d = await r.json();
@@ -496,28 +518,20 @@ export default function App() {
     ]);
 
     try {
-      const res = await apiFetch(
-        `/conversations/${sid}/stream?message=${encodeURIComponent(msg)}`,
-        { headers: { Accept: 'text/event-stream' } },
-      );
-      if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const blocks = buf.split('\n\n');
-        buf = blocks.pop() || '';
-        for (const block of blocks) handleEvent(block);
-      }
+      const q = `?message=${encodeURIComponent(msg)}`;
+      const res = isGuest
+        ? await fetch(`${apiBase}/guest/${guestSid}/stream${q}`, {
+            headers: { Accept: 'text/event-stream' },
+          })
+        : await apiFetch(`/conversations/${sid}/stream${q}`, {
+            headers: { Accept: 'text/event-stream' },
+          });
+      await consumeStream(res);
     } catch (e) {
       patchLast((a) => ({ ...a, text: a.text + `\n[${t('chat.connectionError')}: ${e.message}]` }));
     } finally {
       setBusy(false);
-      loadConversations(); // refresh titles/order after the turn
+      if (!isGuest) loadConversations(); // refresh titles/order after the turn
     }
   }
 
@@ -565,10 +579,13 @@ export default function App() {
     setToken('');
     setSessionId('');
     setMessages([]);
-    setShowModal(true);
+    setConversations([]);
+    setShowModal(false); // drop to guest mode, don't force re-login
   }
 
-  const ready = !!token || !!sessionId;
+  const isGuest = !token;
+  // Chat is always available — authed (has session) or guest.
+  const ready = !!token || !!sessionId || isGuest;
   const userName = auth?.user?.displayName || auth?.user?.email || '';
   const userEmail = auth?.user?.email || '';
   const isAdmin = auth?.user?.role === 'admin';
@@ -594,6 +611,8 @@ export default function App() {
           isAdmin={isAdmin}
           onOpenKnowledge={() => setShowKnowledge(true)}
           onOpenUsers={() => setShowUsers(true)}
+          isGuest={isGuest}
+          onLogin={() => setShowModal(true)}
         />
       )}
 
@@ -626,6 +645,18 @@ export default function App() {
 
       {/* Main Area */}
       <div className="main-area">
+        {/* Guest top-right auth buttons (ChatGPT-style) */}
+        {!showModal && isGuest && (
+          <div className="main-topbar">
+            <button className="topbar-login" onClick={() => setShowModal(true)}>
+              {t('guestMode.login')}
+            </button>
+            <button className="topbar-signup" onClick={() => setShowModal(true)}>
+              {t('guestMode.signup')}
+            </button>
+          </div>
+        )}
+
         {/* Top bar — visible when sidebar is hidden */}
         {!showModal && sidebarCollapsed && (
           <div className="main-header">

@@ -18,6 +18,12 @@ const en = {
     guest: 'Guest',
     logout: 'Log out',
   },
+  guestMode: {
+    signup: 'Sign up for free',
+    sidebarTitle: 'Save your conversations',
+    banner: 'Sign in to save your conversations and access them anywhere.',
+    login: 'Sign in',
+  },
   chat: {
     greeting: 'Hey there! I\'m BurgerPrints Agent.',
     greetingSub: 'Ask me anything about products, print factories and fulfillment pricing to get started!',

@@ -18,6 +18,12 @@ const vi = {
     guest: 'Khách',
     logout: 'Đăng xuất',
   },
+  guestMode: {
+    signup: 'Đăng ký miễn phí',
+    sidebarTitle: 'Lưu lại hội thoại của bạn',
+    banner: 'Đăng nhập để lưu hội thoại và truy cập ở mọi nơi.',
+    login: 'Đăng nhập',
+  },
   chat: {
     greeting: 'Chào bạn! Tôi là BurgerPrints Agent.',
     greetingSub: 'Bạn có thể gửi câu hỏi về sản phẩm, xưởng in và giá fulfillment để bắt đầu nhé!',
