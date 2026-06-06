@@ -30,6 +30,8 @@ export default function Sidebar({
   isAdmin = false,
   onOpenKnowledge,
   onOpenUsers,
+  isGuest = false,
+  onLogin,
 }) {
   const { t, locale, setLocale } = useTranslation();
 
@@ -147,23 +149,33 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* User Footer */}
-        <div className="sidebar-footer">
-          <div className="sidebar-avatar">
-            {(userName || 'U').charAt(0).toUpperCase()}
+        {/* Footer: guest login prompt (ChatGPT-style) or signed-in user */}
+        {isGuest ? (
+          <div className="sidebar-guest">
+            <div className="sidebar-guest-title">{t('guestMode.sidebarTitle')}</div>
+            <div className="sidebar-guest-sub">{t('guestMode.banner')}</div>
+            <button className="sidebar-guest-login" onClick={onLogin}>
+              {t('guestMode.login')}
+            </button>
           </div>
-          <div className="sidebar-user-info">
-            <div className="sidebar-user-name">{userName || t('user.guest')}</div>
-            {userEmail && (
-              <div className="sidebar-user-email">{userEmail}</div>
+        ) : (
+          <div className="sidebar-footer">
+            <div className="sidebar-avatar">
+              {(userName || 'U').charAt(0).toUpperCase()}
+            </div>
+            <div className="sidebar-user-info">
+              <div className="sidebar-user-name">{userName || t('user.guest')}</div>
+              {userEmail && (
+                <div className="sidebar-user-email">{userEmail}</div>
+              )}
+            </div>
+            {onLogout && (
+              <button className="sidebar-logout" onClick={onLogout} title={t('user.logout')}>
+                <LogOut size={16} strokeWidth={1.8} />
+              </button>
             )}
           </div>
-          {onLogout && (
-            <button className="sidebar-logout" onClick={onLogout} title={t('user.logout')}>
-              <LogOut size={16} strokeWidth={1.8} />
-            </button>
-          )}
-        </div>
+        )}
       </div>
     </motion.aside>
   );

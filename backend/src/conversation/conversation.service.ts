@@ -262,6 +262,64 @@ export class ConversationService {
     }
   }
 
+  /**
+   * Guest chat loop: same agent streaming as streamMessage, but on an ephemeral
+   * Redis-only session — no ownership check, no MongoDB persistence. In-session
+   * memory works; nothing survives a refresh once the session TTL expires.
+   */
+  async *streamGuest(
+    sessionId: string,
+    message: string,
+  ): AsyncIterable<AgentChunk> {
+    await this.sessions.ensureEphemeralSession(sessionId);
+
+    const language = this.detectLanguage(message);
+    await this.sessions.setLanguageIfUnset(sessionId, language);
+
+    await this.sessions.appendTurnEphemeral(sessionId, {
+      role: 'user',
+      content: message,
+      ts: new Date().toISOString(),
+    });
+
+    const session = await this.sessions.getSessionOrThrow(sessionId);
+    const history = await this.sessions.getContextTurns(sessionId);
+
+    let assembled = '';
+    let errored = false;
+    try {
+      for await (const chunk of this.agent.run({
+        sessionId,
+        message,
+        language: session.language,
+        history,
+      })) {
+        if (chunk.type === 'token') assembled += chunk.text;
+        if (chunk.type === 'error') errored = true;
+        yield chunk;
+        if (chunk.type === 'done' || chunk.type === 'error') break;
+      }
+    } catch (err) {
+      this.logger.error(
+        `Guest stream error session=${sessionId}: ${(err as Error).message}`,
+      );
+      yield {
+        type: 'error',
+        code: 'AGENT_STREAM_ERROR',
+        message: (err as Error).message,
+      };
+      errored = true;
+    }
+
+    if (!errored && assembled.trim().length > 0) {
+      await this.sessions.appendTurnEphemeral(sessionId, {
+        role: 'assistant',
+        content: assembled.trim(),
+        ts: new Date().toISOString(),
+      });
+    }
+  }
+
   /** Non-stream fallback: concatenate all tokens into one reply. */
   async sendMessage(
     sessionId: string,

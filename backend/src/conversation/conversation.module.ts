@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AgentModule } from '../agent/agent.module';
 import { SessionModule } from '../session/session.module';
 import { ConversationController } from './conversation.controller';
+import { GuestController } from './guest.controller';
 import { ConversationService } from './conversation.service';
 import { ConversationRepository } from './conversation.repository';
 import {
@@ -20,7 +21,7 @@ import { Message, MessageSchema } from './schemas/message.schema';
       { name: Message.name, schema: MessageSchema },
     ]),
   ],
-  controllers: [ConversationController],
+  controllers: [ConversationController, GuestController],
   providers: [ConversationService, ConversationRepository],
   exports: [ConversationRepository, ConversationService],
 })
