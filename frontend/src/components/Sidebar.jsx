@@ -151,10 +151,17 @@ export default function Sidebar({
 
         {/* Footer: guest login prompt (ChatGPT-style) or signed-in user */}
         {isGuest ? (
-          <div className="sidebar-guest">
-            <div className="sidebar-guest-title">{t('guestMode.sidebarTitle')}</div>
-            <div className="sidebar-guest-sub">{t('guestMode.banner')}</div>
-            <button className="sidebar-guest-login" onClick={onLogin}>
+          <div className="mx-3 mb-3.5 mt-2 p-3.5 border-t border-[var(--border-subtle)]">
+            <div className="text-[13.5px] font-bold text-[var(--text-primary)]">
+              {t('guestMode.sidebarTitle')}
+            </div>
+            <div className="text-xs text-[var(--text-muted)] mt-1 mb-3 leading-[1.45]">
+              {t('guestMode.banner')}
+            </div>
+            <button
+              className="w-full py-[9px] text-[13.5px] font-semibold cursor-pointer rounded-full border border-[var(--border-medium)] bg-[var(--bg-composer)] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-sidebar-hover)] hover:border-[var(--accent)]"
+              onClick={onLogin}
+            >
               {t('guestMode.login')}
             </button>
           </div>

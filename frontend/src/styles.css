@@ -822,36 +822,7 @@ body {
 .um-actions .um-danger:hover:not(:disabled) { color: #dc2626; }
 
 
-/* ── Guest sidebar login block (ChatGPT-style) ─────────────────── */
-.sidebar-guest {
-  margin: 8px 12px 14px;
-  padding: 14px;
-  border-top: 1px solid var(--border-subtle);
-}
-.sidebar-guest-title { font-size: 13.5px; font-weight: 700; color: var(--text-primary); }
-.sidebar-guest-sub { font-size: 12px; color: var(--text-muted); margin: 4px 0 12px; line-height: 1.45; }
-.sidebar-guest-login {
-  width: 100%; padding: 9px; font-size: 13.5px; font-weight: 600; cursor: pointer;
-  border-radius: 999px; border: 1px solid var(--border-medium);
-  background: var(--bg-composer); color: var(--text-primary);
-  transition: background 0.15s, border-color 0.15s;
-}
-.sidebar-guest-login:hover { background: var(--bg-sidebar-hover); border-color: var(--accent); }
 
-/* ── Guest top-right auth buttons (ChatGPT-style) ──────────────── */
-.main-topbar {
-  position: absolute; top: 14px; right: 18px; z-index: 30;
-  display: flex; align-items: center; gap: 10px;
-}
-.topbar-login, .topbar-signup {
-  font-size: 13px; font-weight: 600; cursor: pointer; padding: 8px 16px;
-  border-radius: 999px; transition: filter 0.15s, background 0.15s, border-color 0.15s;
-}
-.topbar-login {
-  border: none; background: var(--accent); color: #fff;
-}
-.topbar-login:hover { filter: brightness(1.1); }
-.topbar-signup {
-  border: 1px solid var(--border-medium); background: var(--bg-composer); color: var(--text-primary);
-}
-.topbar-signup:hover { background: var(--bg-sidebar-hover); border-color: var(--accent); }
+
+
+

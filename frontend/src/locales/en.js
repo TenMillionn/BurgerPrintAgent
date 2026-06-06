@@ -25,7 +25,7 @@ const en = {
     login: 'Sign in',
   },
   chat: {
-    greeting: 'Hey there! I\'m BurgerPrints Agent.',
+    greeting: 'Hey there! I\'m {logo} Agent.',
     greetingSub: 'Ask me anything about products, print factories and fulfillment pricing to get started!',
     today: 'Today',
     thinking: 'Thinking',
@@ -120,7 +120,8 @@ const en = {
     saving: 'Saving…',
   },
   modal: {
-    welcome: 'Welcome to BurgerPrints Agent',
+    welcomeTitle: 'Welcome 👋',
+    welcome: 'Welcome to {logo} Agent',
     endpoint: 'Endpoint',
     email: 'Email',
     password: 'Password',

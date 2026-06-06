@@ -1,10 +1,8 @@
 import { motion } from 'framer-motion';
 import { useTranslation } from '../i18n';
 
-
-function WelcomeModal({ onGoogleLogin, onEmailLogin, onGuestChat, email, setEmail, password, setPassword }) {
+function WelcomeModal({ onGoogleLogin, onGuestChat }) {
   const { t } = useTranslation();
-  const endpoint = import.meta.env.VITE_ENDPOINT || '';
 
   return (
     <motion.div
@@ -22,53 +20,17 @@ function WelcomeModal({ onGoogleLogin, onEmailLogin, onGuestChat, email, setEmai
         exit={{ scale: 0.96, y: 20, opacity: 0 }}
         transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
       >
-        <h2 className="text-2xl font-semibold mb-6 text-center" style={{ color: 'var(--text-primary)' }}>
-          {t('modal.welcome')}
-        </h2>
-        {/* Endpoint (read-only) */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">{t('modal.endpoint')}</label>
-          <input
-            type="text"
-            readOnly
-            value={endpoint}
-            className="block w-full px-3 py-2 rounded-md text-sm"
-          />
+        <div className="flex justify-center mb-3">
+          <img src="./LogoBGP.svg" alt="BurgerPrints" className="h-[26px] w-auto" />
         </div>
-        {/* Email */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">{t('modal.email')}</label>
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            className="block w-full px-3 py-2 rounded-md text-sm"
-          />
-        </div>
-        {/* Password */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">{t('modal.password')}</label>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            className="block w-full px-3 py-2 rounded-md text-sm"
-          />
-        </div>
-        {/* Login with email/password */}
-        <button
-          className="w-full py-3 mb-3 rounded-xl font-semibold transition-colors text-white"
-          style={{ background: 'var(--accent)' }}
-          onClick={onEmailLogin}
-        >
-          {t('modal.login')}
-        </button>
-        {/* Divider */}
-        <div className="flex items-center gap-3 mb-3">
-          <div className="flex-1 h-px" style={{ background: 'var(--border-medium)' }} />
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('modal.or')}</span>
-          <div className="flex-1 h-px" style={{ background: 'var(--border-medium)' }} />
-        </div>
+        <p className="text-base font-semibold text-center mb-1" style={{ color: 'var(--text-primary)' }}>
+          {t('modal.welcomeTitle')}
+        </p>
+        <p className="text-sm text-center mb-7" style={{ color: 'var(--text-muted)' }}>
+          {t('chat.greetingSub')}
+        </p>
+
+        {/* Sign in with Google */}
         <button
           className="flex items-center justify-center w-full py-3 mb-3 border rounded-xl transition-colors"
           style={{ borderColor: 'var(--border-medium)', background: 'transparent', color: 'var(--text-primary)' }}
@@ -82,6 +44,8 @@ function WelcomeModal({ onGoogleLogin, onEmailLogin, onGuestChat, email, setEmai
           </svg>
           {t('modal.googleLogin')}
         </button>
+
+        {/* Continue as guest */}
         <button
           className="w-full py-3 border rounded-xl transition-colors"
           style={{ borderColor: 'var(--border-medium)', background: 'transparent', color: 'var(--text-secondary)' }}
