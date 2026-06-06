@@ -117,7 +117,7 @@ export class ConversationService {
       await this.conversationRepo.findActiveConversationsByUser(userId);
     return convs.map((c) => ({
       id: c._id.toString(),
-      title: c.title,
+      title: c.title || 'New Conversation',
       createdAt: (c as any).createdAt?.toISOString() ?? null,
       updatedAt: (c as any).updatedAt?.toISOString() ?? null,
     }));
