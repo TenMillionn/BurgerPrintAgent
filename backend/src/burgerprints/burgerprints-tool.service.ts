@@ -465,6 +465,42 @@ export class BurgerPrintToolService {
       .lean();
   }
 
+  /**
+   * Read an order's computed price from the order LIST (the detail endpoint returns
+   * nulls right after creation). Price is async, so poll a few times. Returns
+   * { base, shipping_fee, total } where total = amount (= sub_amount + shipping_fee).
+   */
+  private async fetchOrderAmounts(
+    orderId: string,
+    apiKey?: string,
+    attempts = 7,
+  ): Promise<{ base: number | null; shipping_fee: number; total: number } | null> {
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const res = await firstValueFrom(
+          this.http.get(`${this.baseUrl}/order`, {
+            headers: this.headers(apiKey),
+            params: { page: 1, pageSize: 30 },
+            timeout: 15_000,
+          }),
+        );
+        const o = ((res.data as any)?.data ?? []).find(
+          (x: any) => x.id === orderId,
+        );
+        if (o && o.amount != null) {
+          const total = Number(o.amount);
+          const shipping = Number(o.shipping_fee) || 0;
+          const base = o.sub_amount != null ? Number(o.sub_amount) : total - shipping;
+          return { base, shipping_fee: shipping, total };
+        }
+      } catch {
+        /* retry */
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    return null;
+  }
+
   // ──────────────────────────────────────────────────────────────────────
   // Tool: createOrder (single item — phase 1)
   // ──────────────────────────────────────────────────────────────────────
@@ -495,7 +531,10 @@ export class BurgerPrintToolService {
   }): Promise<unknown> {
     const s = payload.shipping;
     const it = payload.item;
-    const sandbox = payload.sandbox ?? true;
+    // Default to a REAL (unpaid) order: BurgerPrints sandbox returns a fake id with
+    // no price, so it cannot quote. A real order is created in "draft" (unpaid) state,
+    // its price becomes readable, and charge_order is the actual payment step.
+    const sandbox = payload.sandbox ?? false;
 
     // Backend hard-enforcement for REAL orders (do not rely on the prompt).
     if (!sandbox) {
@@ -554,7 +593,14 @@ export class BurgerPrintToolService {
           timeout: 20_000,
         }),
       );
-      return { sandbox, result: res.data };
+      const orderId = (res.data as any)?.order_id;
+      // For a real (unpaid "draft") order, the price is computed asynchronously and
+      // shows up on the order LIST a few seconds later — poll for it so we can quote.
+      let amounts: unknown = null;
+      if (!sandbox && orderId && (res.data as any)?.is_success) {
+        amounts = await this.fetchOrderAmounts(orderId, payload.apiKey);
+      }
+      return { sandbox, result: res.data, amounts };
     } catch (err) {
       this.logger.error(
         `Create order failed: ${JSON.stringify((err as any)?.response?.data ?? (err as Error).message)}`,

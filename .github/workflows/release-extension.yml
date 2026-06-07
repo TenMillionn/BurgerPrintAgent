@@ -36,6 +36,11 @@ jobs:
           node -e "const f='public/manifest.json',m=require('./'+f);m.version='${VERSION}';require('fs').writeFileSync(f,JSON.stringify(m,null,2)+'\n');console.log('manifest version ->',m.version)"
 
       - name: Build extension
+        # Bake the production backend URL into the extension build so it talks to
+        # the real backend (not localhost). Override via the BACKEND_URL repo/org
+        # variable if the domain changes — falls back to the default below.
+        env:
+          VITE_BACKEND_URL: ${{ vars.BACKEND_URL || 'https://burgerprint.vocatee.com/api' }}
         run: npm run build
 
       # Zip the built unpacked extension (contents of dist/) so it can be loaded directly.
