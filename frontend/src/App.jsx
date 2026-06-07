@@ -30,9 +30,12 @@ const DEFAULT_API =
   (isExtension ? 'http://localhost:3001' : '/api');
 
 // When running as the web app (not the Chrome extension) we nudge users to install
-// the extension. "Download now" points at the latest GitHub release built by CI.
-const RELEASE_LATEST_URL =
-  'https://github.com/TenMillionn/BurgerPrintAgent/releases/latest';
+// the extension. The stable (un-versioned) asset is the fallback direct-download
+// link; at runtime we resolve the versioned asset via the GitHub API so the file
+// the user gets carries the version in its name.
+const GH_REPO = 'TenMillionn/BurgerPrintAgent';
+const RELEASE_LATEST_URL = `https://github.com/${GH_REPO}/releases/latest/download/burgerprints-agent-extension.zip`;
+const RELEASE_API_URL = `https://api.github.com/repos/${GH_REPO}/releases/latest`;
 
 // Chuẩn hoá LaTeX: \[ \] và \( \) → $$ $$ để remark-math (đã tắt single-$) render được.
 // KHÔNG đụng tới '$' đơn (tiền tệ $25) → tránh nuốt chữ thành công thức.
@@ -134,6 +137,26 @@ export default function App() {
       return false;
     }
   });
+  // Download link for the extension. Starts at the stable latest-asset URL, then
+  // upgrades to the versioned asset (resolved from the GitHub API) so the file
+  // the user downloads carries the version in its name.
+  const [extDownloadUrl, setExtDownloadUrl] = useState(RELEASE_LATEST_URL);
+  useEffect(() => {
+    if (isExtension) return; // only the web build shows the banner
+    let cancelled = false;
+    fetch(RELEASE_API_URL, { headers: { Accept: 'application/vnd.github+json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((rel) => {
+        if (cancelled || !Array.isArray(rel?.assets)) return;
+        // Prefer the versioned zip so the downloaded file carries the version.
+        const asset = rel.assets.find((a) =>
+          /^burgerprints-agent-extension-v.*\.zip$/.test(a?.name || ''),
+        );
+        if (asset?.browser_download_url) setExtDownloadUrl(asset.browser_download_url);
+      })
+      .catch(() => { /* keep the stable fallback URL */ });
+    return () => { cancelled = true; };
+  }, []);
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
@@ -762,7 +785,7 @@ export default function App() {
               </div>
             </div>
             <a
-              href={RELEASE_LATEST_URL}
+              href={extDownloadUrl}
               target="_blank"
               rel="noreferrer"
               className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-semibold bg-[var(--accent)] text-white transition hover:brightness-110"
