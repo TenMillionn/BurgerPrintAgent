@@ -20,10 +20,14 @@ import { useTranslation } from './i18n';
 // thẳng backend (mặc định cổng 3001 — đổi trong ô "Backend URL" nếu cần).
 const isExtension =
   typeof location !== 'undefined' && location.protocol === 'chrome-extension:';
-// Web build talks to the backend through the dev/nginx proxy ('/api').
-// The Chrome extension runs on a chrome-extension:// origin (no proxy) so it
-// calls the backend directly — point this at wherever the backend runs.
-const DEFAULT_API = isExtension ? 'http://localhost:3001' : '/api';
+// Resolve the backend base URL:
+//  - VITE_BACKEND_URL (baked at build time) wins — CI sets it for the released
+//    extension so it talks to the production backend instead of localhost.
+//  - Otherwise the web build uses the relative '/api' proxy (dev/nginx), and the
+//    extension falls back to a local backend for development.
+const DEFAULT_API =
+  import.meta.env.VITE_BACKEND_URL ||
+  (isExtension ? 'http://localhost:3001' : '/api');
 
 // When running as the web app (not the Chrome extension) we nudge users to install
 // the extension. "Download now" points at the latest GitHub release built by CI.
@@ -783,13 +787,14 @@ export default function App() {
             style={{ top: showExtBanner ? 70 : 14 }}
           >
             <button
-              className="text-[13px] font-semibold cursor-pointer px-4 py-2 rounded-full bg-[var(--accent)] text-white transition hover:brightness-110"
+              className="font-semibold cursor-pointer rounded-full bg-[var(--accent)] text-white transition hover:brightness-110 px-3 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-[13px]"
               onClick={() => setShowModal(true)}
             >
               {t('guestMode.login')}
             </button>
+            {/* Sign-up hidden on small screens to avoid overlapping the header */}
             <button
-              className="text-[13px] font-semibold cursor-pointer px-4 py-2 rounded-full border border-[var(--border-medium)] bg-[var(--bg-composer)] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-sidebar-hover)] hover:border-[var(--accent)]"
+              className="hidden sm:inline-block text-[13px] font-semibold cursor-pointer px-4 py-2 rounded-full border border-[var(--border-medium)] bg-[var(--bg-composer)] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-sidebar-hover)] hover:border-[var(--accent)]"
               onClick={() => setShowModal(true)}
             >
               {t('guestMode.signup')}

@@ -25,22 +25,21 @@ Use this whenever a seller wants to **place an order**, **buy/fulfill** a produc
 - Ask for: recipient name, address line 1, city, state, postal code, country (line 2 / email / phone optional).
 - For **US** orders the state must be a **2-letter code** (e.g. CA, NY) and the country a **2-letter code** (e.g. US, DE). If a field is missing or invalid, ask again for just that field. Never invent address details.
 
-## Step 4 — Show a cost preview (draft)
-- Create a **draft (sandbox)** order first and show the seller the **base cost + shipping fee + total**. This is a preview only — nothing is charged and no real order is placed yet.
-
-## Step 5 — Make sure their own API key is set
-- Before placing a real order, the seller must have their **own BurgerPrints API key** configured (real orders and payment run on their account/wallet, not the platform's).
+## Step 4 — Make sure their own API key is set
+- Before creating the order, the seller must have their **own BurgerPrints API key** configured (the order and payment run on their account/wallet, not the platform's).
 - If it isn't set, stop and ask them to add it in settings — a settings prompt appears for them automatically. Resume only after it's configured.
 
-## Step 6 — Gate 1: create the real order
-- Only after the seller **explicitly confirms** the real order (with the total shown), place it. You'll get an **order id**. The order now exists but is **not yet paid**.
+## Step 5 — Gate 1: create the order (this is the quote)
+- After the seller **confirms the item**, create the order. This places an **unpaid order** ("draft") on their account and **returns the price** — show the seller the **base cost + shipping fee + total** from the result. Nothing is charged yet.
+- Note: there is **no separate sandbox preview** — the unpaid order itself is the quote. (Sandbox orders return no price.) The price is computed a moment after creation, so the create step already waits and returns it.
 
-## Step 7 — Gate 2: charge it (separately)
+## Step 6 — Gate 2: charge it (separately)
 - This is a **separate** confirmation — never charge automatically right after creating the order.
 - After the seller **explicitly confirms payment**, check their wallet balance first. If there are enough funds, charge the order. If the balance is too low, do **not** charge — tell them to top up; the order stays created but unpaid.
+- If the seller declines or wants changes, **delete the unpaid order** instead of leaving it.
 
 ## Right after the order is created
-- As soon as a real order is created (you have an order id), show a clickable **link button** that opens the order on the BurgerPrints dashboard: `https://dash.burgerprints.com/admin/order/<order_id>`. Render it as a button, not as raw text.
+- As soon as the order is created (you have an order id), show a clickable **link button** that opens the order on the BurgerPrints dashboard: `https://dash.burgerprints.com/admin/order/<order_id>`. Render it as a button, not as raw text.
 - You can also offer quick-reply buttons for the obvious next step (e.g. "Pay now" / "Not yet") instead of making the seller type.
 
 ## After the order

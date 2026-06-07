@@ -469,10 +469,15 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       }));
     } else if (toolName === 'create_order') {
       const oid = details.result?.order_id;
-      if (oid)
-        items = [
-          { title: `Order ${oid}`, meta: details.sandbox ? 'sandbox' : 'live' },
-        ];
+      if (oid) {
+        const a = details.amounts;
+        const meta = a
+          ? `total ${money(a.total)} (ship ${money(a.shipping_fee)})`
+          : details.sandbox
+            ? 'sandbox'
+            : 'unpaid';
+        items = [{ title: `Order ${oid}`, meta }];
+      }
     } else if (toolName === 'charge_order') {
       const state = details.result?.state;
       if (state) items = [{ title: 'Charge', meta: String(state) }];
@@ -653,8 +658,9 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
       tool(
         'create_order',
-        'Create a fulfillment order (single item, phase 1). ALWAYS create a sandbox DRAFT first (sandbox=true) to show the seller base cost + shipping fee + total. ' +
-          "Set sandbox=false ONLY after the seller explicitly confirms a real order (gate 1) — this uses the seller's own API key. Never charge automatically afterwards.",
+        'Create the order (single item, phase 1) — this places an UNPAID order (BurgerPrints "draft" state) on the seller\'s account and RETURNS THE PRICE (base + shipping + total) so you can quote it. ' +
+          "It is not charged yet — charge_order is the separate payment step. Requires the seller's API key. Do NOT use sandbox (it returns no price). " +
+          'Call this after the seller confirms the SKU + design + address (gate 1: "create the order to see the price"); then show the returned base/shipping/total and ask to pay (gate 2). If the seller declines, delete_order it.',
         {
           shipping: {
             type: 'object',
@@ -711,17 +717,22 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         },
         ['shipping', 'item'],
         async (p) => {
-          const sandbox = p.sandbox ?? true;
-          // Deterministic reference per turn → provider-side idempotency.
-          const referenceOrderId = `agent-${input.sessionId}-${input.history.length}`;
+          // Default to a real (unpaid) order — sandbox cannot quote a price.
+          const sandbox = p.sandbox ?? false;
+          // Intent key (per turn) for OUR dedup. The reference sent to the provider
+          // is unique per call so a failed attempt's reference doesn't block a retry
+          // (the provider rejects a reused reference with "already being processed").
+          const intentKey = `agent-${input.sessionId}-${input.history.length}`;
+          const referenceOrderId = `${intentKey}-${Date.now().toString(36)}`;
           let apiKey: string | undefined;
           if (!sandbox) {
             const k = await this.resolveSellerKey(input);
             if ('requires' in k) return { error: true, ...k };
             apiKey = k.apiKey;
-            // Idempotency guard (F1): do not re-create the same intent.
-            if (this.createdOrders.has(referenceOrderId)) {
-              return this.createdOrders.get(referenceOrderId);
+            // Idempotency guard: a real order already SUCCEEDED for this intent →
+            // return it instead of creating a duplicate (a failed attempt is not cached).
+            if (this.createdOrders.has(intentKey)) {
+              return this.createdOrders.get(intentKey);
             }
           }
           // Resolve design URLs from the conversation's design assets: an explicit
@@ -758,7 +769,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
             apiKey,
           });
           if (!sandbox && !(res as any)?.error) {
-            this.createdOrders.set(referenceOrderId, res);
+            this.createdOrders.set(intentKey, res);
           }
           return res;
         },
@@ -1321,14 +1332,13 @@ export function defaultSystemPrompt(): string {
     `- GATE 0 (auth): the FIRST time an order is requested, call check_auth ONCE. If not logged in, STOP and ask the seller to log in (a login prompt appears automatically); do not collect SKU/design/address from a guest. Once it returns logged_in, do NOT call check_auth again for the rest of the conversation — the money/account tools self-check anyway.`,
     `- STEP A (SKU): use search_products → get_product_variants to settle the exact catalog_sku + quantity; never order an out-of-stock SKU.`,
     `- STEP B (design / print file): you MUST call request_design_upload(sides) ONCE to show a single upload card — never just ask for the file in text. Pass every side you need in that one call: sides=["front"] for front only, or sides=["front","back"] when the back is printed (the card shows one slot per side). After the seller uploads, call validate_design. If it is NOT a valid print resolution, tell the seller, offer auto resize/crop, and call render_buttons with a "Process now" button.`,
-    `- PROCESS NOW (critical): if the seller replies "Process now" (or otherwise agrees to fix the file), your IMMEDIATE next action MUST be to call process_design — do not move on to address/draft/order first, and do not just re-list steps. After it returns, show the corrected image(s) as markdown and continue. While the front design is still invalid, do NOT create any order (not even a sandbox draft) — fix it with process_design first. A real order needs a valid front print file.`,
+    `- PROCESS NOW (critical): if the seller replies "Process now" (or otherwise agrees to fix the file), your IMMEDIATE next action MUST be to call process_design — do not move on to address/draft/order first, and do not just re-list steps. After it returns, show the corrected image(s) as markdown and continue. While the front design is still invalid, do NOT create the order — fix it with process_design first. The order needs a valid front print file.`,
     `- DESIGN SELECTION: ordering uses the latest valid uploaded image per side automatically (you don't need to pass URLs). If the seller says that's not the right image, call list_design_assets and offer the options with render_buttons; pass the chosen design_asset_id_front/back to create_order.`,
-    `- CONTINUITY (important): carry forward details already established earlier in THIS conversation — the chosen SKU/color/size, quantity, uploaded design, and address. NEVER ask the seller to re-type something they already gave. If a detail scrolled out of your visible context, recover it: call search_history for the chosen product/SKU, and remember the design is auto-resolved from the latest valid upload (call list_design_assets to confirm one exists). A sandbox DRAFT does NOT require a design file — it only needs the SKU + quantity + shipping address to show base cost + shipping fee + total. Only ask the seller again if recovery genuinely fails.`,
+    `- CONTINUITY (important): carry forward details already established earlier in THIS conversation — the chosen SKU/color/size, quantity, uploaded design, and address. NEVER ask the seller to re-type something they already gave. If a detail scrolled out of your visible context, recover it: call search_history for the chosen product/SKU, and remember the design is auto-resolved from the latest valid upload (call list_design_assets to confirm one exists). Only ask the seller again if recovery genuinely fails.`,
     `- STEP C (address): collect shipping name/address1/city/state/zip/country (2-letter state for US, 2-letter country code). Re-ask for any missing/invalid field; never invent address data.`,
-    `- STEP D (DRAFT): call create_order with sandbox=true to preview cost. Show the seller base cost + shipping fee + total. This is NOT a real order.`,
-    `- GATE KEY: before a real order, call require_seller_key. If no key, STOP and ask the seller to add their BurgerPrints API key in settings (a settings prompt appears automatically).`,
-    `- GATE 1 (create real): ONLY after the seller explicitly confirms, call create_order with sandbox=false → you get an order_id. The order is created but NOT yet paid.`,
-    `- GATE 2 (charge): SEPARATELY, after the seller explicitly confirms payment, call get_balance; if funds are sufficient call charge_order(order_id). If insufficient, do NOT charge — tell the seller to top up. NEVER chain create→charge automatically.`,
+    `- GATE KEY: before creating the order, call require_seller_key. If no key, STOP and ask the seller to add their BurgerPrints API key in settings (a settings prompt appears automatically). (Do NOT use sandbox — it cannot quote a price.)`,
+    `- GATE 1 (create + quote): after the seller confirms the item, call create_order. This places an UNPAID order ("draft") and RETURNS the price — show the seller base cost + shipping fee + total from the result's amounts. It is NOT paid yet. (No sandbox preview; the unpaid order IS the quote.) If create_order returns an error, tell the seller it failed and what to fix — NEVER claim an order was created when it errored. If it succeeds but amounts is null (price still computing), call list_orders and read amount + shipping_fee for that order_id to quote.`,
+    `- GATE 2 (charge): SEPARATELY, only after the seller explicitly confirms payment, call get_balance; if funds are sufficient call charge_order(order_id). If insufficient, do NOT charge — tell the seller to top up. NEVER chain create→charge automatically. If the seller declines or wants changes, delete_order the unpaid order.`,
     `- AFTER a real order is created: call render_buttons with a "link" button "View order on dashboard" → https://dash.burgerprints.com/admin/order/<order_id> (use the returned order_id).`,
     `- AFTER: use list_orders for "my orders / order history", get_order / get_order_tracking for one order's status; cancel_order / delete_order only after explicit confirmation.`,
     ``,
@@ -1397,7 +1407,7 @@ export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   },
   {
     name: 'create_order',
-    desc: "Create a single-item fulfillment order. Default sandbox=true (draft to preview cost). sandbox=false (real order) uses the seller's own API key and requires explicit confirmation.",
+    desc: "Place a single-item UNPAID order (BurgerPrints 'draft') on the seller's account and return its price (base + shipping + total) for quoting. Uses the seller's key; charge_order pays it. Not sandbox.",
   },
   {
     name: 'check_auth',

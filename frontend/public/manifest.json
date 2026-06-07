@@ -14,6 +14,7 @@
   },
   "permissions": ["sidePanel", "identity"],
   "host_permissions": [
+    "https://burgerprint.vocatee.com/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
   ]
