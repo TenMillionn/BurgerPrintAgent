@@ -7,6 +7,7 @@ export type AgentChunkType =
   | 'tool'
   | 'action'
   | 'buttons'
+  | 'upload_card'
   | 'error'
   | 'done';
 
@@ -62,6 +63,12 @@ export interface AgentButtonsChunk {
   type: 'buttons';
   buttons: AgentButton[];
 }
+/** Render an in-chat print-file upload card for a side, attached to the current turn. */
+export interface AgentUploadCardChunk {
+  type: 'upload_card';
+  side: 'front' | 'back';
+  ref: string; // upload-<sessionId>-<turn>-<side>
+}
 
 export type AgentChunk =
   | AgentTokenChunk
@@ -69,6 +76,7 @@ export type AgentChunk =
   | AgentToolChunk
   | AgentActionChunk
   | AgentButtonsChunk
+  | AgentUploadCardChunk
   | AgentErrorChunk
   | AgentDoneChunk;
 

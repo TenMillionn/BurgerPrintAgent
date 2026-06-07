@@ -73,6 +73,15 @@ const en = {
   common: {
     close: 'Close',
   },
+  design: {
+    uploadFront: 'Upload front print file',
+    uploadBack: 'Upload back print file',
+    choose: 'Choose file',
+    upload: 'Upload',
+    uploading: 'Uploading…',
+    uploaded: 'Uploaded',
+    error: 'Upload failed',
+  },
   tools: {
     search_products: 'Search products',
     compare_factories: 'Compare factories',
@@ -95,6 +104,10 @@ const en = {
     cancel_order: 'Cancel order',
     delete_order: 'Delete order',
     render_buttons: 'Show options',
+    request_design_upload: 'Request file upload',
+    validate_design: 'Validate print file',
+    process_design: 'Auto resize/crop',
+    list_design_assets: 'List design files',
     search_history: 'Search history',
     retrieve_knowledge: 'Check knowledge',
     fetch_url: 'Read web page',

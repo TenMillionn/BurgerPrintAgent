@@ -15,9 +15,9 @@ Use this whenever a seller wants to **place an order**, **buy/fulfill** a produc
 - After an upload, validate the image. The print file resolution must match one of the allowed sizes (WxH in pixels). If it does not match:
   - Tell the seller the file's size is not a valid print resolution.
   - Offer to auto resize/crop it, and show a "Process now" button.
-  - When the seller confirms, run the image-processing step; it returns processed front/back images at a valid resolution and shows them in the chat.
-- Which image to use for the order: always use the most recent uploaded image in the conversation (per side). If the seller says that's not the right one, list the images uploaded in this conversation and let them choose.
-- Do not place a real order until there is a valid (correctly-sized) front print file.
+- **When the seller replies "Process now" (or otherwise agrees to fix the file), your IMMEDIATE next step MUST be to run the auto resize/crop — do not collect the address, do not create any order, and do not just re-list the remaining steps.** It returns the corrected front/back image(s) at a valid resolution; show them in the chat, then continue.
+- **While the front design is still invalid, do NOT create any order — not even a sandbox draft.** Fix it first. A real order needs a valid (correctly-sized) front print file.
+- Which image to use for the order: always use the most recent valid image in the conversation (per side). If the seller says that's not the right one, list the images uploaded in this conversation and let them choose.
 
 ## Step 3 — Collect the shipping address
 - Ask for: recipient name, address line 1, city, state, postal code, country (line 2 / email / phone optional).

@@ -1,7 +1,15 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-`specs/005-create-order/plan.md`
+`specs/006-design-file-pipeline/plan.md`
+
+Feature 006 adds a validated print-file pipeline: a `request_design_upload` tool renders an
+in-chat upload card; uploads (`POST /uploads/design`) store a `DesignAsset` (conversation +
+side + agent-message ref + pixel dims) on R2 and read dimensions with `sharp`;
+`validate_design` checks against a fixed allowed-resolution list; `process_design` resize/crops
+invalid images (cover + centre crop) to the nearest allowed size; `list_design_assets` lets the
+seller pick. Ordering uses the latest valid asset per side. Spec & artifacts in
+`specs/006-design-file-pipeline/`. Builds on feature 005 (`specs/005-create-order/`).
 
 Feature 005 lets a logged-in seller create and pay for a single-item BurgerPrints
 fulfillment order through chat, with two confirmation gates (create, then charge) and a

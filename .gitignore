@@ -1,3 +1,4 @@
 .agents/
 # Personal Claude Code settings (local hooks etc.)
 .claude/settings.local.json
+.DS_Store
