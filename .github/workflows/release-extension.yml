@@ -47,10 +47,16 @@ jobs:
       - name: Zip extension
         run: |
           cd dist
+          # Versioned name (human-friendly) + a stable name so a fixed
+          # "/releases/latest/download/burgerprints-agent-extension.zip" link
+          # always resolves to the newest build.
           zip -r "../burgerprints-agent-extension-${GITHUB_REF_NAME}.zip" .
+          cp "../burgerprints-agent-extension-${GITHUB_REF_NAME}.zip" "../burgerprints-agent-extension.zip"
 
       - name: Create GitHub Release and attach zip
         uses: softprops/action-gh-release@v2
         with:
-          files: frontend/burgerprints-agent-extension-${{ github.ref_name }}.zip
+          files: |
+            frontend/burgerprints-agent-extension-${{ github.ref_name }}.zip
+            frontend/burgerprints-agent-extension.zip
           generate_release_notes: true
