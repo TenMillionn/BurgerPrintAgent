@@ -2,6 +2,8 @@
 
 Use this whenever a seller wants to **place an order**, **buy/fulfill** a product, **create an order**, asks "how do I order this", or is ready to purchase a SKU you've been discussing. Follow these steps in order and never skip a confirmation gate.
 
+**Act, don't promise:** whenever you say you'll do something (look up the variant, process the file, create the order), actually call that tool in the same reply — never announce it and then stop. To get/confirm the variant code, look it up yourself from the product + color + size; don't ask the seller for it or say the SKU is "invalid" without immediately re-fetching the in-stock variant.
+
 ## Before anything: check they are logged in
 - First make sure the seller is logged in. If they are not, stop and ask them to log in before collecting any order details — a login prompt appears for them automatically. Do not gather SKU, design, or address from a guest.
 

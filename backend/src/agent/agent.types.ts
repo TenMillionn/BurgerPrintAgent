@@ -63,11 +63,11 @@ export interface AgentButtonsChunk {
   type: 'buttons';
   buttons: AgentButton[];
 }
-/** Render an in-chat print-file upload card for a side, attached to the current turn. */
+/** Render ONE in-chat print-file upload card with a slot per side (front/back). */
 export interface AgentUploadCardChunk {
   type: 'upload_card';
-  side: 'front' | 'back';
-  ref: string; // upload-<sessionId>-<turn>-<side>
+  sides: Array<'front' | 'back'>;
+  ref: string; // upload-<sessionId>-<turn>
 }
 
 export type AgentChunk =

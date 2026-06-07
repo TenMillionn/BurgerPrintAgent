@@ -73,13 +73,20 @@ const vi = {
   common: {
     close: 'Đóng',
   },
+  download: {
+    title: 'Cài đặt extension cho trải nghiệm tốt hơn',
+    desc: 'Mở nhanh ngay trong Side Panel của Chrome, dùng mọi lúc khi đang lướt web.',
+    cta: 'Tải ngay',
+    dismiss: 'Đóng',
+  },
   design: {
-    uploadFront: 'Tải file in mặt trước',
-    uploadBack: 'Tải file in mặt sau',
+    title: 'Tải file in',
+    front: 'Mặt trước',
+    back: 'Mặt sau',
     choose: 'Chọn file',
     upload: 'Tải lên',
     uploading: 'Đang tải lên…',
-    uploaded: 'Đã tải lên',
+    pickFirst: 'Hãy chọn file trước',
     error: 'Tải lên thất bại',
   },
   tools: {
