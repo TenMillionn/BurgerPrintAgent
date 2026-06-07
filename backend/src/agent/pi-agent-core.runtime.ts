@@ -277,11 +277,11 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           ) {
             push({ type: 'buttons', buttons: (details as any).buttons });
           }
-          // request_design_upload → in-chat upload card attached to this turn.
+          // request_design_upload → one in-chat upload card (slot per side).
           if ((details as any)?.render === 'upload_card') {
             push({
               type: 'upload_card',
-              side: (details as any).side,
+              sides: (details as any).sides,
               ref: (details as any).ref,
             });
           }
@@ -504,7 +504,14 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       count = details.buttons.length;
       items = details.buttons.map((b: any) => ({ title: b.label }));
     } else if (toolName === 'request_design_upload') {
-      items = [{ title: 'Upload card', meta: details.side }];
+      items = [
+        {
+          title: 'Upload card',
+          meta: Array.isArray(details.sides)
+            ? details.sides.join(', ')
+            : undefined,
+        },
+      ];
     } else if (toolName === 'validate_design' && details.width) {
       items = [
         {
@@ -939,21 +946,24 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
       tool(
         'request_design_upload',
-        'Render an in-chat upload card so the seller can upload a print file (design). ' +
+        'Render ONE in-chat upload card so the seller can upload the print file(s). ' +
           'ALWAYS call this when you need a design file — never just ask for it in text. ' +
-          'Render one card per side you need (front; back only if the back is printed).',
+          'Pass every side you need in ONE call: sides=["front"] for front only, or ' +
+          'sides=["front","back"] when the back is printed too (the card shows one slot per side).',
         {
-          side: {
-            type: 'string',
-            enum: ['front', 'back'],
-            description: 'Which print side this file is for',
+          sides: {
+            type: 'array',
+            description: 'Print sides to collect',
+            items: { type: 'string', enum: ['front', 'back'] },
           },
         },
-        ['side'],
+        [],
         (p) => {
-          const side = p.side === 'back' ? 'back' : 'front';
-          const ref = `upload-${input.sessionId}-${input.history.length}-${side}`;
-          return Promise.resolve({ render: 'upload_card', side, ref });
+          const raw = Array.isArray(p.sides) ? p.sides : [];
+          const sides = ['front', 'back'].filter((s) => raw.includes(s));
+          if (sides.length === 0) sides.push('front');
+          const ref = `upload-${input.sessionId}-${input.history.length}`;
+          return Promise.resolve({ render: 'upload_card', sides, ref });
         },
       ),
       tool(
@@ -1310,7 +1320,7 @@ export function defaultSystemPrompt(): string {
     `ORDER FLOW (placing & paying for an order — follow EXACTLY, never skip a gate):`,
     `- GATE 0 (auth): the FIRST time an order is requested, call check_auth ONCE. If not logged in, STOP and ask the seller to log in (a login prompt appears automatically); do not collect SKU/design/address from a guest. Once it returns logged_in, do NOT call check_auth again for the rest of the conversation — the money/account tools self-check anyway.`,
     `- STEP A (SKU): use search_products → get_product_variants to settle the exact catalog_sku + quantity; never order an out-of-stock SKU.`,
-    `- STEP B (design / print file): you MUST call request_design_upload(side) to show an upload card — never just ask for the file in text (front; back only if the back is printed). After the seller uploads, call validate_design. If it is NOT a valid print resolution, tell the seller, offer auto resize/crop, and call render_buttons with a "Process now" button.`,
+    `- STEP B (design / print file): you MUST call request_design_upload(sides) ONCE to show a single upload card — never just ask for the file in text. Pass every side you need in that one call: sides=["front"] for front only, or sides=["front","back"] when the back is printed (the card shows one slot per side). After the seller uploads, call validate_design. If it is NOT a valid print resolution, tell the seller, offer auto resize/crop, and call render_buttons with a "Process now" button.`,
     `- PROCESS NOW (critical): if the seller replies "Process now" (or otherwise agrees to fix the file), your IMMEDIATE next action MUST be to call process_design — do not move on to address/draft/order first, and do not just re-list steps. After it returns, show the corrected image(s) as markdown and continue. While the front design is still invalid, do NOT create any order (not even a sandbox draft) — fix it with process_design first. A real order needs a valid front print file.`,
     `- DESIGN SELECTION: ordering uses the latest valid uploaded image per side automatically (you don't need to pass URLs). If the seller says that's not the right image, call list_design_assets and offer the options with render_buttons; pass the chosen design_asset_id_front/back to create_order.`,
     `- CONTINUITY (important): carry forward details already established earlier in THIS conversation — the chosen SKU/color/size, quantity, uploaded design, and address. NEVER ask the seller to re-type something they already gave. If a detail scrolled out of your visible context, recover it: call search_history for the chosen product/SKU, and remember the design is auto-resolved from the latest valid upload (call list_design_assets to confirm one exists). A sandbox DRAFT does NOT require a design file — it only needs the SKU + quantity + shipping address to show base cost + shipping fee + total. Only ask the seller again if recovery genuinely fails.`,
@@ -1328,6 +1338,7 @@ export function defaultSystemPrompt(): string {
     `SHORT_CODE RULE (critical): compare_factories / get_product_variants / get_shipping need a short_code. You MUST obtain short_code from a search_products result — NEVER invent or guess it (e.g. do not assume "EU3001" or "USBC3001"). If the seller names a product but you don't have its exact short_code, call search_products FIRST to resolve it, then use the returned short_code. A wrong short_code returns a 400 error.`,
     `KNOWLEDGE FIRST: At the START of every turn, call retrieve_knowledge — but pass a SELF-CONTAINED query that resolves the conversation context, NOT the seller's raw words. If the latest message is a short follow-up (just a country name, "thì sao?", "cái kia", a number...), expand it using the active topic so the query stands on its own — e.g. while discussing VAT and the seller types only "Germany", query "VAT tax rate for Germany", not "Germany". If it returns a matching guide, follow that guide's approach (its steps, what to check, what to ask back). If it returns nothing relevant, just answer normally. Never mention guides, knowledge, or tools to the seller — treat any guide as your own expertise.`,
     `TOOL AUTONOMY: Decide and call tools YOURSELF to answer. NEVER ask the seller for permission to use a tool ("do you want me to compare factories / check shipping / look up SKUs?") — just call it and give the answer. Chain tools as needed (search → detail → variants → shipping → margin) without pausing. Only ask the seller for missing INFORMATION you truly cannot proceed without (e.g. destination country for a shipping quote), never for permission to act.`,
+    `ACT, DON'T PROMISE (critical): if you say you will do something ("I'll process the file now", "let me get the right variant", "I'll create the order"), you MUST call the matching tool in the SAME turn, BEFORE ending your message — never announce an action and then stop, forcing the seller to nudge you ("did you do it yet?", "go ahead"). Specifically: to get/confirm a catalog_sku, call get_product_variants yourself (you have the product + color + size) — do NOT ask the seller for the variant code or say the SKU is "invalid" without immediately re-fetching it; on "Process now", call process_design immediately. If a step is doable with a tool, do it now rather than describing it.`,
     `DISAMBIGUATION: a category can have many sub-types (Hoodie = Pullover / Zip-up / Crop / Kids...). If the seller's request is broad, call search_products and present the matching sub-types/products (a compact table) and proceed with the comparison/answer for the most relevant ones — do NOT stop just to ask "which one?". Ask only if the choice genuinely changes the answer and you cannot reasonably pick. If seller says "all", group by sub-type (one section each); never merge different products into one table.`,
     ``,
     `KEY DATA FACTS:`,
@@ -1430,7 +1441,7 @@ export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   },
   {
     name: 'request_design_upload',
-    desc: 'Render an in-chat upload card for a print file (front/back). Always used instead of asking for a design in text.',
+    desc: 'Render ONE in-chat upload card with a slot per side (pass sides=["front"] or ["front","back"]). Always used instead of asking for a design in text.',
   },
   {
     name: 'validate_design',

@@ -5,7 +5,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowUp, ChevronDown, CircleCheck, Clock, Globe, PanelLeftOpen, Plus, Sparkles } from 'lucide-react';
+import { ArrowUp, ChevronDown, CircleCheck, Clock, Download, Globe, PanelLeftOpen, Plus, Sparkles, X } from 'lucide-react';
 import WelcomeModal from './components/WelcomeModal';
 import Sidebar from './components/Sidebar';
 import KnowledgePanel from './components/KnowledgePanel';
@@ -24,6 +24,11 @@ const isExtension =
 // The Chrome extension runs on a chrome-extension:// origin (no proxy) so it
 // calls the backend directly — point this at wherever the backend runs.
 const DEFAULT_API = isExtension ? 'http://localhost:3001' : '/api';
+
+// When running as the web app (not the Chrome extension) we nudge users to install
+// the extension. "Download now" points at the latest GitHub release built by CI.
+const RELEASE_LATEST_URL =
+  'https://github.com/TenMillionn/BurgerPrintAgent/releases/latest';
 
 // Chuẩn hoá LaTeX: \[ \] và \( \) → $$ $$ để remark-math (đã tắt single-$) render được.
 // KHÔNG đụng tới '$' đơn (tiền tệ $25) → tránh nuốt chữ thành công thức.
@@ -117,11 +122,22 @@ export default function App() {
     () => 'guest-' + (window.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)),
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Dismissable "install the extension" banner (web only); persisted so it stays hidden.
+  const [extBannerDismissed, setExtBannerDismissed] = useState(() => {
+    try {
+      return localStorage.getItem('bp_ext_banner_dismissed') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [attachments, setAttachments] = useState([]); // [{ url, name }]
   const [uploading, setUploading] = useState(false);
+  // The single active design-upload card for this conversation (null = none). A new
+  // request_design_upload replaces it, so old/duplicate cards never linger.
+  const [uploadReq, setUploadReq] = useState(null); // { sides: string[], ref }
   const [conversations, setConversations] = useState([]);
   const scrollRef = useRef(null);
   const taRef = useRef(null);
@@ -436,6 +452,8 @@ export default function App() {
         }));
       setSessionId(id);
       setMessages(msgs);
+      setUploadReq(null); // the upload card is per-conversation, not persisted
+      setAttachments([]);
       stick.current = true;
     } catch {
       /* ignore */
@@ -626,11 +644,8 @@ export default function App() {
       // Inline clickable buttons attached to this agent turn.
       patchLast((a) => ({ ...a, buttons: [...(a.buttons || []), ...(d.buttons || [])] }));
     } else if (event === 'upload_card') {
-      // In-chat print-file upload card attached to this agent turn.
-      patchLast((a) => ({
-        ...a,
-        uploadCards: [...(a.uploadCards || []), { side: d.side, ref: d.ref }],
-      }));
+      // One card for the whole conversation; a new request replaces the old one.
+      setUploadReq({ sides: d.sides || ['front'], ref: d.ref });
     } else if (event === 'error') {
       patchLast((a) => ({ ...a, text: a.text + `\n\n⚠️ ${d.message || t('status.error')}` }));
     }
@@ -638,6 +653,8 @@ export default function App() {
 
   function handleNewChat() {
     setMessages([]);
+    setUploadReq(null);
+    setAttachments([]);
     setSessionId(''); // a real conversation is created lazily on the first message
   }
 
@@ -658,6 +675,13 @@ export default function App() {
   const userName = auth?.user?.displayName || auth?.user?.email || '';
   const userEmail = auth?.user?.email || '';
   const isAdmin = auth?.user?.role === 'admin';
+
+  // Show the install-the-extension banner only on the web build, until dismissed.
+  const showExtBanner = !isExtension && !extBannerDismissed;
+  const dismissExtBanner = () => {
+    setExtBannerDismissed(true);
+    try { localStorage.setItem('bp_ext_banner_dismissed', '1'); } catch { /* noop */ }
+  };
 
   return (
     <div className="app">
@@ -719,9 +743,45 @@ export default function App() {
 
       {/* Main Area */}
       <div className="main-area">
+        {/* Web-only: encourage installing the Chrome extension */}
+        {!showModal && showExtBanner && (
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border-subtle)] bg-[var(--bg-composer)]">
+            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-[var(--accent)] text-white shrink-0">
+              <Download size={17} strokeWidth={2} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-semibold text-[var(--text-primary)] truncate">
+                {t('download.title')}
+              </div>
+              <div className="text-[12px] text-[var(--text-muted)] truncate">
+                {t('download.desc')}
+              </div>
+            </div>
+            <a
+              href={RELEASE_LATEST_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-semibold bg-[var(--accent)] text-white transition hover:brightness-110"
+            >
+              <Download size={15} strokeWidth={2.2} />
+              {t('download.cta')}
+            </a>
+            <button
+              onClick={dismissExtBanner}
+              title={t('download.dismiss')}
+              className="shrink-0 flex items-center justify-center w-7 h-7 rounded-lg text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-sidebar-hover)] hover:text-[var(--text-primary)]"
+            >
+              <X size={16} strokeWidth={2} />
+            </button>
+          </div>
+        )}
+
         {/* Guest top-right auth buttons (ChatGPT-style) */}
         {!showModal && isGuest && (
-          <div className="absolute top-3.5 right-[18px] z-30 flex items-center gap-2.5">
+          <div
+            className="absolute right-[18px] z-30 flex items-center gap-2.5"
+            style={{ top: showExtBanner ? 70 : 14 }}
+          >
             <button
               className="text-[13px] font-semibold cursor-pointer px-4 py-2 rounded-full bg-[var(--accent)] text-white transition hover:brightness-110"
               onClick={() => setShowModal(true)}
@@ -857,19 +917,24 @@ export default function App() {
                 {m.buttons && i === messages.length - 1 && !busy && (
                   <ChatButtons buttons={m.buttons} onMessage={(text) => send(text)} />
                 )}
-                {(m.uploadCards || []).map((c, ci) => (
-                  <UploadCard
-                    key={ci}
-                    apiFetch={apiFetch}
-                    t={t}
-                    side={c.side}
-                    refId={c.ref}
-                    conversationId={sessionId}
-                    onUploaded={(side) => send(`Upload ${side} success`)}
-                  />
-                ))}
               </div>
             ),
+          )}
+
+          {/* Single design-upload card (one slot per side). A new request replaces it;
+              it disappears once the seller saves, so old/duplicate cards never linger. */}
+          {uploadReq && (
+            <UploadCard
+              apiFetch={apiFetch}
+              t={t}
+              sides={uploadReq.sides}
+              refId={uploadReq.ref}
+              conversationId={sessionId}
+              onDone={(uploaded) => {
+                setUploadReq(null);
+                send(`Design uploaded: ${uploaded.join(', ')}`);
+              }}
+            />
           )}
         </div>
 

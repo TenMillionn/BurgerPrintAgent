@@ -73,13 +73,20 @@ const en = {
   common: {
     close: 'Close',
   },
+  download: {
+    title: 'Install the extension for a better experience',
+    desc: 'Open it instantly from Chrome\'s Side Panel while you browse the web.',
+    cta: 'Download now',
+    dismiss: 'Dismiss',
+  },
   design: {
-    uploadFront: 'Upload front print file',
-    uploadBack: 'Upload back print file',
+    title: 'Upload print file',
+    front: 'Front',
+    back: 'Back',
     choose: 'Choose file',
     upload: 'Upload',
     uploading: 'Uploading…',
-    uploaded: 'Uploaded',
+    pickFirst: 'Pick a file first',
     error: 'Upload failed',
   },
   tools: {
