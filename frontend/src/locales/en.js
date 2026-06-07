@@ -73,6 +73,12 @@ const en = {
   common: {
     close: 'Close',
   },
+  qr: {
+    button: 'Try it',
+    title: 'Try it now',
+    subtitle: 'Scan to open BurgerPrint Agent on your phone',
+    open: 'Or open in browser',
+  },
   download: {
     title: 'Install the extension for a better experience',
     desc: 'Open it instantly from Chrome\'s Side Panel while you browse the web.',

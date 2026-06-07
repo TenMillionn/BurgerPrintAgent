@@ -11,6 +11,7 @@ import {
   BookOpen,
   Users,
   KeyRound,
+  QrCode,
 } from 'lucide-react';
 import { useTranslation } from '../i18n';
 
@@ -32,6 +33,7 @@ export default function Sidebar({
   onOpenKnowledge,
   onOpenUsers,
   onOpenKeySettings,
+  onOpenQr,
   isGuest = false,
   onLogin,
 }) {
@@ -79,6 +81,12 @@ export default function Sidebar({
             <button className="sidebar-item" onClick={onOpenKeySettings}>
               <KeyRound size={19} strokeWidth={1.8} className="sidebar-item-icon" />
               <span className="sidebar-item-label">{t('sidebar.apiKey')}</span>
+            </button>
+          )}
+          {onOpenQr && (
+            <button className="sidebar-item" onClick={onOpenQr}>
+              <QrCode size={19} strokeWidth={1.8} className="sidebar-item-icon" />
+              <span className="sidebar-item-label">{t('qr.button')}</span>
             </button>
           )}
         </nav>
