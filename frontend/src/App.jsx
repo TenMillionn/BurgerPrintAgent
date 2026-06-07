@@ -44,6 +44,16 @@ const MARKDOWN_COMPONENTS = {
     ) : (
       <span>{children}</span>
     ),
+  // Constrain in-chat images (e.g. processed design files) to a thumbnail with rounded corners.
+  img: ({ src, alt }) =>
+    src ? (
+      <img
+        src={src}
+        alt={alt || ''}
+        loading="lazy"
+        className="my-1.5 max-h-[280px] max-w-[220px] w-auto h-auto rounded-xl border border-[var(--border-medium)] object-contain"
+      />
+    ) : null,
   // Wrap wide tables so they scroll horizontally instead of breaking the layout.
   table: ({ children }) => (
     <div className="md-table-scroll">
@@ -840,10 +850,11 @@ export default function App() {
                     onSaved={() => send('Setup BurgerPrint apikey done')}
                   />
                 )}
-                {/* Buttons only on the agent's LAST message: once the seller clicks a
-                    (non-link) button or types, a newer message exists → decision made,
-                    so the stale buttons disappear. Link clicks add no message → they stay. */}
-                {m.buttons && i === messages.length - 1 && (
+                {/* Buttons render only after the agent finishes streaming (!busy) and
+                    only on its LAST message: once the seller clicks a (non-link) button
+                    or types, a newer message exists → decision made → stale buttons
+                    disappear. Link clicks add no message → they stay. */}
+                {m.buttons && i === messages.length - 1 && !busy && (
                   <ChatButtons buttons={m.buttons} onMessage={(text) => send(text)} />
                 )}
                 {(m.uploadCards || []).map((c, ci) => (

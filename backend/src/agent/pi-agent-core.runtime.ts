@@ -33,6 +33,10 @@ const esmImport = new Function('m', 'return import(m)') as (
   m: string,
 ) => Promise<any>;
 
+// Internal gate tools — they still run (and may emit action/buttons), but their
+// tool step is NOT shown in the FE pipeline/timeline (it's noise to the seller).
+const HIDDEN_TIMELINE_TOOLS = new Set(['check_auth', 'require_seller_key']);
+
 @Injectable()
 export class PiAgentCoreRuntime implements AgentRuntime {
   private readonly logger = new Logger(PiAgentCoreRuntime.name);
@@ -231,27 +235,31 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           break;
         }
         case 'tool_execution_start':
-          push({
-            type: 'tool',
-            id: event.toolCallId,
-            name: event.toolName,
-            status: 'running',
-          });
+          if (!HIDDEN_TIMELINE_TOOLS.has(event.toolName)) {
+            push({
+              type: 'tool',
+              id: event.toolCallId,
+              name: event.toolName,
+              status: 'running',
+            });
+          }
           break;
         case 'tool_execution_end': {
           const details = event.result?.details ?? event.result;
-          const { count, results } = this.extractToolResults(
-            event.toolName,
-            details,
-          );
-          push({
-            type: 'tool',
-            id: event.toolCallId,
-            name: event.toolName,
-            status: 'done',
-            count,
-            results,
-          });
+          if (!HIDDEN_TIMELINE_TOOLS.has(event.toolName)) {
+            const { count, results } = this.extractToolResults(
+              event.toolName,
+              details,
+            );
+            push({
+              type: 'tool',
+              id: event.toolCallId,
+              name: event.toolName,
+              status: 'done',
+              count,
+              results,
+            });
+          }
           // Gate signal → drive a FE popup (login / API-key settings).
           const requires = (details as any)?.requires;
           if (requires === 'login' || requires === 'apikey') {
@@ -323,11 +331,29 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       });
     };
 
-    let emittedContent = false;
+    // Only actual reply TEXT blocks a retry (re-running would duplicate it). Tool/
+    // thinking/action chunks do NOT block: after tools have run, a failed final LLM
+    // call is retried with agent.continue(), which resumes from the tool results
+    // without re-executing tools or re-emitting their chunks.
+    let emittedText = false;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       turnDone = false;
       turnError = null;
       runToken++;
+      if (attempt > 1) {
+        // continue() requires the last message to be user/toolResult. A failed turn
+        // can leave a dangling (empty) assistant message — drop trailing assistant
+        // messages so the retry resumes cleanly. We only retry when no text was
+        // emitted, so nothing useful is discarded.
+        try {
+          const msgs = (agent.state?.messages ?? []) as Array<{ role: string }>;
+          let n = msgs.length;
+          while (n > 0 && msgs[n - 1]?.role === 'assistant') n--;
+          if (n !== msgs.length) agent.state.messages = msgs.slice(0, n);
+        } catch {
+          /* best-effort */
+        }
+      }
       startRun(
         attempt === 1
           ? () => agent.prompt(input.message)
@@ -339,8 +365,8 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       while (!turnEnded) {
         if (queue.length > 0) {
           const chunk = queue.shift() as AgentChunk;
-          if (chunk.type !== 'done' && chunk.type !== 'error') {
-            emittedContent = true;
+          if (chunk.type === 'token') {
+            emittedText = true;
           }
           yield chunk;
           continue;
@@ -360,7 +386,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         return;
       }
       const canRetry =
-        attempt < MAX_ATTEMPTS && !emittedContent && RETRYABLE.test(te.message);
+        attempt < MAX_ATTEMPTS && !emittedText && RETRYABLE.test(te.message);
       if (!canRetry) {
         yield { type: 'error', code: te.code, message: te.message };
         return;
@@ -1282,10 +1308,12 @@ export function defaultSystemPrompt(): string {
     `7. Order flow tools: check_auth, require_seller_key, get_balance, charge_order, list_orders, get_order, get_order_tracking, cancel_order, delete_order. See ORDER FLOW below.`,
     ``,
     `ORDER FLOW (placing & paying for an order — follow EXACTLY, never skip a gate):`,
-    `- GATE 0 (auth): BEFORE collecting any order info, call check_auth. If not logged in, STOP and ask the seller to log in (a login prompt appears automatically). Do not collect SKU/design/address from a guest.`,
+    `- GATE 0 (auth): the FIRST time an order is requested, call check_auth ONCE. If not logged in, STOP and ask the seller to log in (a login prompt appears automatically); do not collect SKU/design/address from a guest. Once it returns logged_in, do NOT call check_auth again for the rest of the conversation — the money/account tools self-check anyway.`,
     `- STEP A (SKU): use search_products → get_product_variants to settle the exact catalog_sku + quantity; never order an out-of-stock SKU.`,
-    `- STEP B (design / print file): you MUST call request_design_upload(side) to show an upload card — never just ask for the file in text (front; back only if the back is printed). After the seller uploads, call validate_design. If it is NOT a valid print resolution, tell the seller, offer auto resize/crop, and call render_buttons with a "Process now" button; when they confirm, call process_design and show the corrected image(s) as markdown. A real order needs a valid front print file.`,
+    `- STEP B (design / print file): you MUST call request_design_upload(side) to show an upload card — never just ask for the file in text (front; back only if the back is printed). After the seller uploads, call validate_design. If it is NOT a valid print resolution, tell the seller, offer auto resize/crop, and call render_buttons with a "Process now" button.`,
+    `- PROCESS NOW (critical): if the seller replies "Process now" (or otherwise agrees to fix the file), your IMMEDIATE next action MUST be to call process_design — do not move on to address/draft/order first, and do not just re-list steps. After it returns, show the corrected image(s) as markdown and continue. While the front design is still invalid, do NOT create any order (not even a sandbox draft) — fix it with process_design first. A real order needs a valid front print file.`,
     `- DESIGN SELECTION: ordering uses the latest valid uploaded image per side automatically (you don't need to pass URLs). If the seller says that's not the right image, call list_design_assets and offer the options with render_buttons; pass the chosen design_asset_id_front/back to create_order.`,
+    `- CONTINUITY (important): carry forward details already established earlier in THIS conversation — the chosen SKU/color/size, quantity, uploaded design, and address. NEVER ask the seller to re-type something they already gave. If a detail scrolled out of your visible context, recover it: call search_history for the chosen product/SKU, and remember the design is auto-resolved from the latest valid upload (call list_design_assets to confirm one exists). A sandbox DRAFT does NOT require a design file — it only needs the SKU + quantity + shipping address to show base cost + shipping fee + total. Only ask the seller again if recovery genuinely fails.`,
     `- STEP C (address): collect shipping name/address1/city/state/zip/country (2-letter state for US, 2-letter country code). Re-ask for any missing/invalid field; never invent address data.`,
     `- STEP D (DRAFT): call create_order with sandbox=true to preview cost. Show the seller base cost + shipping fee + total. This is NOT a real order.`,
     `- GATE KEY: before a real order, call require_seller_key. If no key, STOP and ask the seller to add their BurgerPrints API key in settings (a settings prompt appears automatically).`,
