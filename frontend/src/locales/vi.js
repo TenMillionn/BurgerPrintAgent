@@ -73,6 +73,12 @@ const vi = {
   common: {
     close: 'Đóng',
   },
+  qr: {
+    button: 'Dùng thử',
+    title: 'Trải nghiệm ngay',
+    subtitle: 'Quét mã để mở BurgerPrint Agent trên điện thoại',
+    open: 'Hoặc mở trên trình duyệt',
+  },
   download: {
     title: 'Cài đặt extension cho trải nghiệm tốt hơn',
     desc: 'Mở nhanh ngay trong Side Panel của Chrome, dùng mọi lúc khi đang lướt web.',

@@ -14,6 +14,7 @@ import KeyModal from './components/KeyModal';
 import KeyInlineCard from './components/KeyInlineCard';
 import ChatButtons from './components/ChatButtons';
 import UploadCard from './components/UploadCard';
+import QrModal from './components/QrModal';
 import { useTranslation } from './i18n';
 
 // Web (Vite dev) dùng proxy '/api'. Extension chạy origin chrome-extension:// nên gọi
@@ -160,6 +161,7 @@ export default function App() {
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const [attachments, setAttachments] = useState([]); // [{ url, name }]
   const [uploading, setUploading] = useState(false);
   // The single active design-upload card for this conversation (null = none). A new
@@ -712,6 +714,8 @@ export default function App() {
 
   return (
     <div className="app">
+      {showQr && <QrModal t={t} onClose={() => setShowQr(false)} />}
+
       {/* Sidebar */}
       {!showModal && (
         <Sidebar
@@ -732,6 +736,7 @@ export default function App() {
           onOpenKnowledge={() => setShowKnowledge(true)}
           onOpenUsers={() => setShowUsers(true)}
           onOpenKeySettings={() => setShowKeyModal(true)}
+          onOpenQr={() => setShowQr(true)}
           isGuest={isGuest}
           onLogin={() => setShowModal(true)}
         />
