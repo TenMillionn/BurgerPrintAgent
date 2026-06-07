@@ -1,7 +1,14 @@
 import { ConversationTurn, Language } from '../session/session.types';
 
 /** Chunk phát ra từ AgentRuntime.run() → map sang SSE event (data-model: AgentChunk). */
-export type AgentChunkType = 'token' | 'thinking' | 'tool' | 'error' | 'done';
+export type AgentChunkType =
+  | 'token'
+  | 'thinking'
+  | 'tool'
+  | 'action'
+  | 'buttons'
+  | 'error'
+  | 'done';
 
 export interface AgentTokenChunk {
   type: 'token';
@@ -33,11 +40,35 @@ export interface AgentDoneChunk {
   type: 'done';
   finishReason: string;
 }
+/**
+ * UI action signal for the frontend (e.g. open the login modal or the API-key
+ * settings panel). Emitted when an order-flow gate is blocked. Transient — not
+ * persisted as part of the assistant reply.
+ */
+export interface AgentActionChunk {
+  type: 'action';
+  action: 'login_required' | 'apikey_required';
+  message?: string;
+}
+/** A clickable button rendered in the chat. */
+export interface AgentButton {
+  label: string;
+  /** message = clicking sends `value` back as a chat message; link = opens `value` in a new tab. */
+  action: 'message' | 'link';
+  value: string;
+}
+/** Render inline buttons attached to the current agent turn (e.g. "Open dashboard"). */
+export interface AgentButtonsChunk {
+  type: 'buttons';
+  buttons: AgentButton[];
+}
 
 export type AgentChunk =
   | AgentTokenChunk
   | AgentThinkingChunk
   | AgentToolChunk
+  | AgentActionChunk
+  | AgentButtonsChunk
   | AgentErrorChunk
   | AgentDoneChunk;
 
@@ -51,4 +82,8 @@ export interface AgentRunInput {
   systemPrompt?: string;
   /** Model id override cho phiên (rỗng → dùng LLM_MODEL trong env). */
   model?: string;
+  /** Authenticated seller id (auth path). Undefined for guests. */
+  userId?: string;
+  /** True on the guest (ephemeral, login-free) chat path. */
+  isGuest?: boolean;
 }

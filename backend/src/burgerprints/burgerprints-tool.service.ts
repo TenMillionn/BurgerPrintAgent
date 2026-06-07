@@ -392,7 +392,81 @@ export class BurgerPrintToolService {
   }
 
   // ──────────────────────────────────────────────────────────────────────
-  // Tool: createOrder
+  // Order lifecycle helpers
+  // ──────────────────────────────────────────────────────────────────────
+
+  /** Resolve which BurgerPrints api-key to use: the seller's (if given) or the shared env key. */
+  private resolveKey(apiKey?: string): string {
+    return apiKey || this.apiKey;
+  }
+
+  private headers(apiKey?: string): Record<string, string> {
+    return {
+      'api-key': this.resolveKey(apiKey),
+      'Content-Type': 'application/json',
+    };
+  }
+
+  /** Map a thrown axios error to a structured tool result; flag 401 so the agent can re-prompt for a key. */
+  private toolError(
+    err: unknown,
+    code: string,
+    message: string,
+  ): Record<string, unknown> {
+    const status = (err as any)?.response?.status;
+    const detail = (err as any)?.response?.data ?? (err as Error).message;
+    if (status === 401 || status === 403) {
+      return {
+        error: true,
+        code: 'INVALID_API_KEY',
+        requires: 'apikey',
+        message: 'BurgerPrints rejected the API key',
+        detail,
+      };
+    }
+    return { error: true, code, message, detail };
+  }
+
+  /** US 2-letter state + 2-letter country validation; returns an error string or null. */
+  private validateShipping(s: {
+    name?: string;
+    address1?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+    country?: string;
+  }): string | null {
+    for (const f of ['name', 'address1', 'city', 'state', 'zip', 'country']) {
+      if (!(s as any)[f] || String((s as any)[f]).trim() === '') {
+        return `Missing shipping field: ${f}`;
+      }
+    }
+    const country = String(s.country).trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(country)) {
+      return 'country must be a 2-letter country code (e.g. US, DE)';
+    }
+    if (country === 'US' && !/^[A-Z]{2}$/.test(String(s.state).trim())) {
+      return 'For US orders, state must be a 2-letter code (e.g. CA, NY)';
+    }
+    return null;
+  }
+
+  /** Find the variant whose generated catalog_sku (shortCode-color-size) matches; for in-stock checks. */
+  private async findVariantByCatalogSku(catalogSku: string): Promise<any | null> {
+    return this.variantModel
+      .findOne({
+        $expr: {
+          $eq: [
+            { $concat: ['$productShortCode', '-', '$color', '-', '$size'] },
+            catalogSku,
+          ],
+        },
+      })
+      .lean();
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Tool: createOrder (single item — phase 1)
   // ──────────────────────────────────────────────────────────────────────
   async createOrder(payload: {
     shipping: {
@@ -406,16 +480,47 @@ export class BurgerPrintToolService {
       email?: string;
       phone?: string;
     };
-    items: Array<{
+    item: {
       catalog_sku: string;
       quantity: number;
       design_url_front?: string;
+      design_url_back?: string;
       mockup_url_front?: string;
-    }>;
+      mockup_url_back?: string;
+    };
+    shipping_label?: string;
     reference_order_id?: string;
     sandbox?: boolean;
+    apiKey?: string;
   }): Promise<unknown> {
     const s = payload.shipping;
+    const it = payload.item;
+    const sandbox = payload.sandbox ?? true;
+
+    // Backend hard-enforcement for REAL orders (do not rely on the prompt).
+    if (!sandbox) {
+      const shipErr = this.validateShipping(s);
+      if (shipErr) {
+        return { error: true, code: 'INVALID_SHIPPING', message: shipErr };
+      }
+      if (!it.design_url_front) {
+        return {
+          error: true,
+          code: 'MISSING_DESIGN',
+          message: 'A real order requires design_url_front for the item',
+        };
+      }
+      // In-stock enforcement (FR-017): block ordering an out-of-stock SKU.
+      const variant = await this.findVariantByCatalogSku(it.catalog_sku);
+      if (variant && variant.inStock === false) {
+        return {
+          error: true,
+          code: 'OUT_OF_STOCK',
+          message: `SKU ${it.catalog_sku} is out of stock`,
+        };
+      }
+    }
+
     const body: Record<string, unknown> = {
       shipping_name: s.name,
       shipping_address1: s.address1,
@@ -427,39 +532,175 @@ export class BurgerPrintToolService {
       shipping_email: s.email ?? '',
       shipping_phone: s.phone ?? '',
       reference_order_id: payload.reference_order_id ?? `agent-${Date.now()}`,
-      items: payload.items.map((it) => ({
-        catalog_sku: it.catalog_sku,
-        quantity: it.quantity,
-        ...(it.design_url_front
-          ? { design_url_front: it.design_url_front }
-          : {}),
-        ...(it.mockup_url_front
-          ? { mockup_url_front: it.mockup_url_front }
-          : {}),
-      })),
-      sandbox: payload.sandbox ?? true,
+      ...(payload.shipping_label ? { shipping_label: payload.shipping_label } : {}),
+      // The provider expects items[]; phase 1 sends exactly one item.
+      items: [
+        {
+          catalog_sku: it.catalog_sku,
+          quantity: it.quantity,
+          ...(it.design_url_front ? { design_url_front: it.design_url_front } : {}),
+          ...(it.design_url_back ? { design_url_back: it.design_url_back } : {}),
+          ...(it.mockup_url_front ? { mockup_url_front: it.mockup_url_front } : {}),
+          ...(it.mockup_url_back ? { mockup_url_back: it.mockup_url_back } : {}),
+        },
+      ],
+      sandbox,
     };
 
     try {
       const res = await firstValueFrom(
         this.http.post(`${this.baseUrl}/order`, body, {
-          headers: {
-            'api-key': this.apiKey,
-            'Content-Type': 'application/json',
-          },
+          headers: this.headers(payload.apiKey),
           timeout: 20_000,
         }),
       );
-      return { sandbox: body.sandbox, result: res.data };
+      return { sandbox, result: res.data };
     } catch (err) {
-      const msg = (err as any)?.response?.data ?? (err as Error).message;
-      this.logger.error(`Tạo đơn lỗi: ${JSON.stringify(msg)}`);
-      return {
-        error: true,
-        code: 'CREATE_ORDER_ERROR',
-        message: 'Không tạo được đơn',
-        detail: msg,
-      };
+      this.logger.error(
+        `Create order failed: ${JSON.stringify((err as any)?.response?.data ?? (err as Error).message)}`,
+      );
+      return this.toolError(err, 'CREATE_ORDER_ERROR', 'Could not create the order');
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Tool: chargeOrder
+  // ──────────────────────────────────────────────────────────────────────
+  async chargeOrder(orderIds: string[], apiKey?: string): Promise<unknown> {
+    try {
+      const res = await firstValueFrom(
+        this.http.post(
+          `${this.baseUrl}/order/charge`,
+          { order_ids: orderIds },
+          { headers: this.headers(apiKey), timeout: 20_000 },
+        ),
+      );
+      return { result: res.data };
+    } catch (err) {
+      return this.toolError(err, 'CHARGE_ORDER_ERROR', 'Could not charge the order');
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Tool: getBalance
+  // ──────────────────────────────────────────────────────────────────────
+  async getBalance(apiKey?: string): Promise<unknown> {
+    try {
+      const res = await firstValueFrom(
+        this.http.get(`${this.baseUrl}/balance`, {
+          headers: this.headers(apiKey),
+          timeout: 15_000,
+        }),
+      );
+      return { result: res.data };
+    } catch (err) {
+      return this.toolError(err, 'BALANCE_ERROR', 'Could not read the balance');
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Tool: listOrders
+  // ──────────────────────────────────────────────────────────────────────
+  async listOrders(
+    params: { page?: number; pageSize?: number },
+    apiKey?: string,
+  ): Promise<unknown> {
+    const page = params.page && params.page > 0 ? params.page : 1;
+    const pageSize = Math.min(params.pageSize ?? 20, 50);
+    try {
+      const res = await firstValueFrom(
+        this.http.get(`${this.baseUrl}/order`, {
+          headers: this.headers(apiKey),
+          params: { page, pageSize },
+          timeout: 15_000,
+        }),
+      );
+      const data = (res.data as any) ?? {};
+      const orders = (data.data ?? []).map((o: any) => ({
+        order_id: o.id,
+        reference: o.reference_order,
+        amount: o.amount,
+        shipping_fee: o.shipping_fee,
+        created_date: o.created_date,
+        recipient: o.shipping?.name,
+        item_count: Array.isArray(o.items) ? o.items.length : undefined,
+      }));
+      return { total: data.total ?? orders.length, page, pageSize, orders };
+    } catch (err) {
+      return this.toolError(err, 'LIST_ORDERS_ERROR', 'Could not list orders');
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Tool: getOrder
+  // ──────────────────────────────────────────────────────────────────────
+  async getOrder(orderId: string, apiKey?: string): Promise<unknown> {
+    try {
+      const res = await firstValueFrom(
+        this.http.get(`${this.baseUrl}/order/${encodeURIComponent(orderId)}`, {
+          headers: this.headers(apiKey),
+          timeout: 15_000,
+        }),
+      );
+      return { result: res.data };
+    } catch (err) {
+      return this.toolError(err, 'GET_ORDER_ERROR', 'Could not fetch the order');
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Tool: getOrderTracking
+  // ──────────────────────────────────────────────────────────────────────
+  async getOrderTracking(orderId: string, apiKey?: string): Promise<unknown> {
+    try {
+      const res = await firstValueFrom(
+        this.http.get(
+          `${this.baseUrl}/order/${encodeURIComponent(orderId)}/tracking`,
+          { headers: this.headers(apiKey), timeout: 15_000 },
+        ),
+      );
+      const data = (res.data as any)?.data ?? res.data;
+      if (!data || (Array.isArray(data) && data.length === 0)) {
+        return { tracking: null, note: 'Tracking is not available yet' };
+      }
+      return { tracking: data };
+    } catch (err) {
+      return this.toolError(err, 'TRACKING_ERROR', 'Could not fetch tracking');
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Tool: cancelOrder
+  // ──────────────────────────────────────────────────────────────────────
+  async cancelOrder(orderId: string, apiKey?: string): Promise<unknown> {
+    try {
+      const res = await firstValueFrom(
+        this.http.put(
+          `${this.baseUrl}/order/${encodeURIComponent(orderId)}/cancel`,
+          {},
+          { headers: this.headers(apiKey), timeout: 15_000 },
+        ),
+      );
+      return { result: (res.data as any)?.data ?? res.data };
+    } catch (err) {
+      return this.toolError(err, 'CANCEL_ORDER_ERROR', 'Could not cancel the order');
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Tool: deleteOrder
+  // ──────────────────────────────────────────────────────────────────────
+  async deleteOrder(orderId: string, apiKey?: string): Promise<unknown> {
+    try {
+      const res = await firstValueFrom(
+        this.http.delete(`${this.baseUrl}/order/${encodeURIComponent(orderId)}`, {
+          headers: this.headers(apiKey),
+          timeout: 15_000,
+        }),
+      );
+      return { result: res.data };
+    } catch (err) {
+      return this.toolError(err, 'DELETE_ORDER_ERROR', 'Could not delete the order');
     }
   }
 }

@@ -3,6 +3,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { UsersService } from './users.service';
 import { AdminUsersService } from './admin-users.service';
 import { AdminUsersController } from './admin-users.controller';
+import { UserKeyService } from './user-key.service';
+import { MeController } from './me.controller';
 import { User, UserSchema } from './schemas/user.schema';
 import {
   RefreshToken,
@@ -23,8 +25,8 @@ import { Message, MessageSchema } from '../conversation/schemas/message.schema';
       { name: Message.name, schema: MessageSchema },
     ]),
   ],
-  controllers: [AdminUsersController],
-  providers: [UsersService, AdminUsersService],
-  exports: [UsersService],
+  controllers: [AdminUsersController, MeController],
+  providers: [UsersService, AdminUsersService, UserKeyService],
+  exports: [UsersService, UserKeyService],
 })
 export class UsersModule {}

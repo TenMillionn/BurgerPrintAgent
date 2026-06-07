@@ -243,6 +243,10 @@ export class ConversationController {
           count: chunk.count,
           results: chunk.results,
         };
+      case 'action':
+        return { action: chunk.action, message: chunk.message };
+      case 'buttons':
+        return { buttons: chunk.buttons };
       case 'error':
         return { code: chunk.code, message: chunk.message };
       case 'done':

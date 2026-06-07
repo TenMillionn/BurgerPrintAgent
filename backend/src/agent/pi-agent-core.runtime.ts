@@ -8,6 +8,7 @@ import { AgentLogger } from '../logging/agent-logger.service';
 import { AgentRuntime } from './agent-runtime.port';
 import { AgentChunk, AgentRunInput } from './agent.types';
 import { BurgerPrintToolService } from 'src/burgerprints/burgerprints-tool.service';
+import { UserKeyService } from '../users/user-key.service';
 
 /**
  * Adapter around `@earendil-works/pi-agent-core` (the "Pi" toolkit by earendil-works,
@@ -44,7 +45,37 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     private readonly burgerPrintToolService: BurgerPrintToolService,
     private readonly knowledge: KnowledgeService,
     private readonly webFetch: WebFetchService,
+    private readonly userKey: UserKeyService,
   ) {}
+
+  /**
+   * In-memory idempotency guard: a real order already created for a given
+   * reference_order_id (agent-<sessionId>-<turn>) is not created again — a repeat
+   * call in the same turn returns the cached result instead of a duplicate order.
+   */
+  private readonly createdOrders = new Map<string, unknown>();
+
+  /**
+   * Resolve the seller's own BurgerPrints key for money/account tools.
+   * No authenticated user → requires login; user without a key → requires key.
+   */
+  private async resolveSellerKey(
+    input: AgentRunInput,
+  ): Promise<
+    { apiKey: string } | { requires: 'login' | 'apikey'; message: string }
+  > {
+    if (!input.userId) {
+      return { requires: 'login', message: 'Please log in to manage orders' };
+    }
+    const key = await this.userKey.getDecryptedKey(input.userId);
+    if (!key) {
+      return {
+        requires: 'apikey',
+        message: 'Please configure your BurgerPrints API key in settings',
+      };
+    }
+    return { apiKey: key };
+  }
 
   async *run(input: AgentRunInput): AsyncIterable<AgentChunk> {
     const startedAt = Date.now();
@@ -78,11 +109,11 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       (input.model && input.model.trim()) ||
       (this.config.get<string>('llm.model') as string);
 
-    let agent: any;
+    // Resolve the model once (re-used across retry attempts).
+    let model: any;
     try {
       // pi-ai reads the API key from env (ANTHROPIC_API_KEY / OPENAI_API_KEY).
       const openaiBaseUrl = this.config.get<string>('llm.openaiBaseUrl');
-      let model: any;
 
       if (provider === 'openai' && openaiBaseUrl) {
         // OpenAI-compatible proxy (vilao/OpenRouter/Azure/local): the model id may
@@ -106,7 +137,18 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           model.id = modelId;
         }
       }
+    } catch (err) {
+      this.logger.error(`pi Agent init failed: ${(err as Error).message}`);
+      yield {
+        type: 'error',
+        code: 'AGENT_INIT_ERROR',
+        message: (err as Error).message,
+      };
+      return;
+    }
 
+    let agent: any;
+    try {
       agent = new Agent({
         initialState: {
           systemPrompt: this.buildSystemPrompt(input),
@@ -128,10 +170,23 @@ export class PiAgentCoreRuntime implements AgentRuntime {
 
     // ── Bridge push (subscribe) → pull (async queue) ──────────────────────
     const queue: AgentChunk[] = [];
-    let done = false;
     let wake: (() => void) | null = null;
+    // Per-attempt turn state, reset before each prompt()/continue(). The terminal
+    // error is captured (not queued) so the retry loop can decide whether to emit
+    // it or retry instead.
+    let turnDone = false;
+    let turnError: { code: string; message: string } | null = null;
+    let runToken = 0; // ignore a late rejection from a previous attempt
     const push = (c: AgentChunk) => {
       queue.push(c);
+      if (wake) {
+        wake();
+        wake = null;
+      }
+    };
+    const endTurn = (err: { code: string; message: string } | null) => {
+      turnError = err;
+      turnDone = true;
       if (wake) {
         wake();
         wake = null;
@@ -172,6 +227,23 @@ export class PiAgentCoreRuntime implements AgentRuntime {
             count,
             results,
           });
+          // Gate signal → drive a FE popup (login / API-key settings).
+          const requires = (details as any)?.requires;
+          if (requires === 'login' || requires === 'apikey') {
+            push({
+              type: 'action',
+              action:
+                requires === 'login' ? 'login_required' : 'apikey_required',
+              message: (details as any)?.message,
+            });
+          }
+          // render_buttons → inline clickable buttons attached to this turn.
+          if (
+            (details as any)?.render === 'buttons' &&
+            Array.isArray((details as any).buttons)
+          ) {
+            push({ type: 'buttons', buttons: (details as any).buttons });
+          }
           break;
         }
         case 'agent_end': {
@@ -182,49 +254,90 @@ export class PiAgentCoreRuntime implements AgentRuntime {
             error: errorMessage ?? null,
             duration_ms: Date.now() - startedAt,
           });
-          if (errorMessage) {
-            push({
-              type: 'error',
-              code: 'AGENT_RUNTIME_ERROR',
-              message: errorMessage,
-            });
-          } else {
-            push({ type: 'done', finishReason: 'stop' });
-          }
-          done = true;
-          if (wake) {
-            wake();
-            wake = null;
-          }
+          endTurn(
+            errorMessage
+              ? { code: 'AGENT_RUNTIME_ERROR', message: errorMessage }
+              : null,
+          );
           break;
         }
       }
     });
 
-    // Kick off the agent loop (not awaited here so we consume events while it runs).
-    agent.prompt(input.message).catch((err: Error) => {
-      void this.agentLog.turnEnd(input.sessionId, {
-        reply: finalText,
-        finishReason: 'error',
-        error: err.message,
-        duration_ms: Date.now() - startedAt,
-      });
-      push({ type: 'error', code: 'AGENT_PROMPT_ERROR', message: err.message });
-      done = true;
-      if (wake) {
-        wake();
-        wake = null;
-      }
-    });
+    // pi-agent-core has no client-side LLM retry; the supported way to retry after
+    // an error is agent.continue() (resumes from the existing context — last message
+    // must be user/toolResult; see README "continue() Event Sequence"). We retry a
+    // transient provider error (429/5xx, upstream connect/timeout/reset) ONLY when no
+    // content was streamed yet, so output is never duplicated.
+    const RETRYABLE =
+      /\b(429|500|502|503|504)\b|upstream connect|connection timeout|reset before headers|disconnect\/reset|overloaded|temporarily unavailable|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i;
+    const MAX_ATTEMPTS = 3;
 
-    // Consume the queue; stop when done and empty.
-    while (true) {
-      if (queue.length > 0) {
-        yield queue.shift() as AgentChunk;
-        continue;
+    // Kick off a run (prompt() first, continue() to retry). Not awaited so we stream
+    // events as they arrive; a rejection that bypasses agent_end is funnelled into
+    // endTurn, guarded by runToken so a previous attempt's late reject is ignored.
+    const startRun = (fn: () => Promise<unknown>) => {
+      const myToken = runToken;
+      fn().catch((err: Error) => {
+        if (myToken !== runToken || turnDone) return;
+        void this.agentLog.turnEnd(input.sessionId, {
+          reply: finalText,
+          finishReason: 'error',
+          error: err.message,
+          duration_ms: Date.now() - startedAt,
+        });
+        endTurn({ code: 'AGENT_PROMPT_ERROR', message: err.message });
+      });
+    };
+
+    let emittedContent = false;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      turnDone = false;
+      turnError = null;
+      runToken++;
+      startRun(
+        attempt === 1
+          ? () => agent.prompt(input.message)
+          : () => agent.continue(),
+      );
+
+      // Consume this attempt's events until the turn ends and the queue drains.
+      let turnEnded = false;
+      while (!turnEnded) {
+        if (queue.length > 0) {
+          const chunk = queue.shift() as AgentChunk;
+          if (chunk.type !== 'done' && chunk.type !== 'error') {
+            emittedContent = true;
+          }
+          yield chunk;
+          continue;
+        }
+        if (turnDone) {
+          turnEnded = true;
+          break;
+        }
+        await new Promise<void>((resolve) => (wake = resolve));
       }
-      if (done) break;
-      await new Promise<void>((resolve) => (wake = resolve));
+
+      // Cast needed: turnError is only assigned inside the subscribe/catch closures,
+      // so TS flow-narrows it to null at this read site.
+      const te = turnError as { code: string; message: string } | null;
+      if (!te) {
+        yield { type: 'done', finishReason: 'stop' };
+        return;
+      }
+      const canRetry =
+        attempt < MAX_ATTEMPTS && !emittedContent && RETRYABLE.test(te.message);
+      if (!canRetry) {
+        yield { type: 'error', code: te.code, message: te.message };
+        return;
+      }
+      this.logger.warn(
+        `Retryable LLM error (attempt ${attempt}/${MAX_ATTEMPTS}), retrying via continue(): ${te.message}`,
+      );
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, 600 * attempt + 300),
+      );
     }
   }
 
@@ -301,6 +414,44 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         items = [
           { title: `Order ${oid}`, meta: details.sandbox ? 'sandbox' : 'live' },
         ];
+    } else if (toolName === 'charge_order') {
+      const state = details.result?.state;
+      if (state) items = [{ title: 'Charge', meta: String(state) }];
+    } else if (toolName === 'get_balance') {
+      const bal = details.result?.balance ?? details.result?.amount;
+      if (bal != null) items = [{ title: 'Balance', meta: money(bal) }];
+    } else if (toolName === 'list_orders' && Array.isArray(details.orders)) {
+      count = details.total ?? details.orders.length;
+      items = details.orders.map((o: any) => ({
+        title: o.order_id,
+        meta:
+          [money(o.amount), o.recipient].filter(Boolean).join(' · ') ||
+          undefined,
+      }));
+    } else if (toolName === 'get_order') {
+      const st = details.result?.state ?? details.result?.data?.state;
+      if (st) items = [{ title: 'Order', meta: String(st) }];
+    } else if (toolName === 'get_order_tracking') {
+      items = [
+        {
+          title: 'Tracking',
+          meta: details.tracking ? 'available' : 'pending',
+        },
+      ];
+    } else if (
+      toolName === 'render_buttons' &&
+      Array.isArray(details.buttons)
+    ) {
+      count = details.buttons.length;
+      items = details.buttons.map((b: any) => ({ title: b.label }));
+    } else if (toolName === 'cancel_order' || toolName === 'delete_order') {
+      const ok = details.result?.is_success ?? !details.error;
+      items = [
+        {
+          title: toolName === 'cancel_order' ? 'Cancel' : 'Delete',
+          meta: ok ? 'ok' : 'failed',
+        },
+      ];
     } else if (toolName === 'get_shipping' && Array.isArray(details.shipping)) {
       count = details.total_countries ?? details.shipping.length;
       items = details.shipping.map((s: any) => ({
@@ -409,8 +560,8 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
       tool(
         'create_order',
-        'Create a fulfillment order (bonus). Default sandbox=true (no real order). ' +
-          'ONLY call after the seller confirms SKU + quantity + shipping address. Set sandbox=false only when the seller confirms a real order.',
+        'Create a fulfillment order (single item, phase 1). ALWAYS create a sandbox DRAFT first (sandbox=true) to show the seller base cost + shipping fee + total. ' +
+          "Set sandbox=false ONLY after the seller explicitly confirms a real order (gate 1) — this uses the seller's own API key. Never charge automatically afterwards.",
         {
           shipping: {
             type: 'object',
@@ -420,40 +571,255 @@ export class PiAgentCoreRuntime implements AgentRuntime {
               address1: { type: 'string' },
               address2: { type: 'string' },
               city: { type: 'string' },
-              state: { type: 'string' },
+              state: {
+                type: 'string',
+                description: '2-letter code for US (e.g. CA)',
+              },
               zip: { type: 'string' },
-              country: { type: 'string', description: 'Country code, e.g. US' },
+              country: {
+                type: 'string',
+                description: '2-letter country code, e.g. US',
+              },
               email: { type: 'string' },
               phone: { type: 'string' },
             },
             required: ['name', 'address1', 'city', 'state', 'zip', 'country'],
           },
-          items: {
-            type: 'array',
-            description: 'List of SKUs + quantities',
-            items: {
-              type: 'object',
-              properties: {
-                catalog_sku: { type: 'string' },
-                quantity: { type: 'number' },
-                design_url_front: { type: 'string' },
-                mockup_url_front: { type: 'string' },
+          item: {
+            type: 'object',
+            description: 'The single SKU to order',
+            properties: {
+              catalog_sku: { type: 'string' },
+              quantity: { type: 'number' },
+              design_url_front: {
+                type: 'string',
+                description: 'Public design URL (required for a real order)',
               },
-              required: ['catalog_sku', 'quantity'],
+              design_url_back: { type: 'string' },
+              mockup_url_front: { type: 'string' },
+              mockup_url_back: { type: 'string' },
             },
+            required: ['catalog_sku', 'quantity'],
+          },
+          shipping_label: {
+            type: 'string',
+            description: 'Optional shipping label URL',
           },
           sandbox: {
             type: 'boolean',
-            description: 'true = test order (default true)',
+            description:
+              'true = draft/test order (default true). false = real order.',
           },
         },
-        ['shipping', 'items'],
-        (p) =>
-          this.burgerPrintToolService.createOrder({
+        ['shipping', 'item'],
+        async (p) => {
+          const sandbox = p.sandbox ?? true;
+          // Deterministic reference per turn → provider-side idempotency.
+          const referenceOrderId = `agent-${input.sessionId}-${input.history.length}`;
+          let apiKey: string | undefined;
+          if (!sandbox) {
+            const k = await this.resolveSellerKey(input);
+            if ('requires' in k) return { error: true, ...k };
+            apiKey = k.apiKey;
+            // Idempotency guard (F1): do not re-create the same intent.
+            if (this.createdOrders.has(referenceOrderId)) {
+              return this.createdOrders.get(referenceOrderId);
+            }
+          }
+          const res = await this.burgerPrintToolService.createOrder({
             shipping: p.shipping,
-            items: p.items,
-            sandbox: p.sandbox,
-          }),
+            item: p.item,
+            shipping_label: p.shipping_label,
+            sandbox,
+            reference_order_id: referenceOrderId,
+            apiKey,
+          });
+          if (!sandbox && !(res as any)?.error) {
+            this.createdOrders.set(referenceOrderId, res);
+          }
+          return res;
+        },
+      ),
+      tool(
+        'check_auth',
+        'Check whether the seller is logged in. Call this BEFORE collecting any order info. ' +
+          'If not logged in, stop and ask the seller to log in (a login prompt is shown automatically).',
+        {},
+        [],
+        () =>
+          Promise.resolve(
+            input.userId
+              ? { logged_in: true }
+              : {
+                  logged_in: false,
+                  requires: 'login',
+                  message: 'Please log in to place an order',
+                },
+          ),
+      ),
+      tool(
+        'require_seller_key',
+        'Check whether the seller has configured their own BurgerPrints API key. Call this at the draft→real-order boundary. ' +
+          'If no key, stop and ask the seller to add it in settings (a settings prompt is shown automatically).',
+        {},
+        [],
+        async () => {
+          const k = await this.resolveSellerKey(input);
+          if ('requires' in k) return { has_key: false, ...k };
+          return { has_key: true };
+        },
+      ),
+      tool(
+        'charge_order',
+        "Charge/pay a created order from the seller's BurgerPrints wallet (gate 2). " +
+          'ONLY after the seller explicitly confirms payment. Check get_balance first; never auto-charge right after create_order.',
+        {
+          order_id: {
+            type: 'string',
+            description: 'The order id returned by create_order',
+          },
+        },
+        ['order_id'],
+        async (p) => {
+          const k = await this.resolveSellerKey(input);
+          if ('requires' in k) return { error: true, ...k };
+          return this.burgerPrintToolService.chargeOrder(
+            [p.order_id],
+            k.apiKey,
+          );
+        },
+      ),
+      tool(
+        'get_balance',
+        "Read the seller's BurgerPrints wallet balance. Use before charging to confirm sufficient funds.",
+        {},
+        [],
+        async () => {
+          const k = await this.resolveSellerKey(input);
+          if ('requires' in k) return { error: true, ...k };
+          return this.burgerPrintToolService.getBalance(k.apiKey);
+        },
+      ),
+      tool(
+        'list_orders',
+        'List the seller\'s orders (most recent first), paginated. Use for "show my orders / order history". Each entry has order_id, reference, amount, created date, recipient.',
+        {
+          page: { type: 'number', description: 'Page number (default 1)' },
+          page_size: {
+            type: 'number',
+            description: 'Items per page (default 20, max 50)',
+          },
+        },
+        [],
+        async (p) => {
+          const k = await this.resolveSellerKey(input);
+          if ('requires' in k) return { error: true, ...k };
+          return this.burgerPrintToolService.listOrders(
+            { page: p.page, pageSize: p.page_size },
+            k.apiKey,
+          );
+        },
+      ),
+      tool(
+        'get_order',
+        "Get the status/details of one of the seller's orders (state, fulfillment, amounts, shipping).",
+        { order_id: { type: 'string' } },
+        ['order_id'],
+        async (p) => {
+          const k = await this.resolveSellerKey(input);
+          if ('requires' in k) return { error: true, ...k };
+          return this.burgerPrintToolService.getOrder(p.order_id, k.apiKey);
+        },
+      ),
+      tool(
+        'get_order_tracking',
+        'Get tracking info for one of the seller\'s orders. Says "not available yet" gracefully when there is none.',
+        { order_id: { type: 'string' } },
+        ['order_id'],
+        async (p) => {
+          const k = await this.resolveSellerKey(input);
+          if ('requires' in k) return { error: true, ...k };
+          return this.burgerPrintToolService.getOrderTracking(
+            p.order_id,
+            k.apiKey,
+          );
+        },
+      ),
+      tool(
+        'cancel_order',
+        "Cancel one of the seller's orders. ONLY after explicit seller confirmation.",
+        { order_id: { type: 'string' } },
+        ['order_id'],
+        async (p) => {
+          const k = await this.resolveSellerKey(input);
+          if ('requires' in k) return { error: true, ...k };
+          return this.burgerPrintToolService.cancelOrder(p.order_id, k.apiKey);
+        },
+      ),
+      tool(
+        'delete_order',
+        "Delete one of the seller's orders. ONLY after explicit seller confirmation.",
+        { order_id: { type: 'string' } },
+        ['order_id'],
+        async (p) => {
+          const k = await this.resolveSellerKey(input);
+          if ('requires' in k) return { error: true, ...k };
+          return this.burgerPrintToolService.deleteOrder(p.order_id, k.apiKey);
+        },
+      ),
+      tool(
+        'render_buttons',
+        'Render clickable buttons in the chat — a GENERAL UX helper for ANY use case: quick replies, ' +
+          'yes/no confirmations, offering a few choices (markets, sizes, factories...), or external links. ' +
+          'Use it whenever tappable options make the next step easier than typing. ' +
+          'Each button has: title (the label), action ("message" = clicking sends the title back to you as a ' +
+          'chat message, like a quick reply; "link" = opens a URL in a new tab), and either message (text to ' +
+          'send, defaults to title) or link (URL). ' +
+          'One important case: right AFTER a real order is created, call this with a "link" button that opens ' +
+          'the order on the BurgerPrints dashboard: https://dash.burgerprints.com/admin/order/<order_id>.',
+        {
+          buttons: {
+            type: 'array',
+            description: 'Buttons to show the seller',
+            items: {
+              type: 'object',
+              properties: {
+                title: { type: 'string', description: 'Button label' },
+                action: {
+                  type: 'string',
+                  enum: ['message', 'link'],
+                  description:
+                    'message = clicking sends the text back to you; link = opens the URL in a new tab',
+                },
+                message: {
+                  type: 'string',
+                  description:
+                    'For action=message: the text sent back (defaults to title)',
+                },
+                link: {
+                  type: 'string',
+                  description: 'For action=link: the absolute URL to open',
+                },
+              },
+              required: ['title', 'action'],
+            },
+          },
+        },
+        ['buttons'],
+        (p) => {
+          const buttons = (Array.isArray(p.buttons) ? p.buttons : [])
+            .map((b: any) => {
+              const label = String(b?.title ?? '').trim();
+              const action = b?.action === 'link' ? 'link' : 'message';
+              const value =
+                action === 'link'
+                  ? String(b?.link ?? '').trim()
+                  : String(b?.message ?? b?.title ?? '').trim();
+              return { label, action, value };
+            })
+            .filter((b: any) => b.label && b.value);
+          return Promise.resolve({ render: 'buttons', buttons });
+        },
       ),
       tool(
         'search_history',
@@ -470,11 +836,12 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
       tool(
         'retrieve_knowledge',
-        'Look up internal how-to guides relevant to the seller\'s request. Call this at the START of every turn with the seller\'s message. If it returns a matching guide, follow that guide (its steps, checks, and follow-up questions); if it returns nothing, answer normally. Never mention guides/tools to the seller.',
+        "Look up internal how-to guides relevant to the seller's request. Call this at the START of every turn with the seller's message. If it returns a matching guide, follow that guide (its steps, checks, and follow-up questions); if it returns nothing, answer normally. Never mention guides/tools to the seller.",
         {
           query: {
             type: 'string',
-            description: "The seller's request / question to find a relevant guide for",
+            description:
+              "The seller's request / question to find a relevant guide for",
           },
         },
         ['query'],
@@ -486,7 +853,8 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         {
           url: {
             type: 'string',
-            description: 'The absolute http(s) URL to fetch, e.g. "https://example.com/page"',
+            description:
+              'The absolute http(s) URL to fetch, e.g. "https://example.com/page"',
           },
         },
         ['url'],
@@ -515,7 +883,11 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         },
         ['short_code', 'partner_id'],
         (p) =>
-          this.burgerPrintToolService.getShipping(p.short_code, p.partner_id, p.country),
+          this.burgerPrintToolService.getShipping(
+            p.short_code,
+            p.partner_id,
+            p.country,
+          ),
       ),
       tool(
         'get_size_chart',
@@ -658,9 +1030,25 @@ export function defaultSystemPrompt(): string {
     `1. search_products(category, market?, max_base_cost?) → products by type/FEATURE in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. category is full-text over name + description, so you can search by material ("cotton", "ring-spun"), print technique ("DTG"/"DTF") or feature ("long sleeve", "fleece"). Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category. IMPORTANT: if the seller names a SPECIFIC product/model (e.g. "Bella + Canvas 3001", "Gildan 18600"), pass that exact name as category (matching is token/punctuation-insensitive) — do NOT search the generic type, because results are sorted by price and capped, so a specific (pricier) model would be hidden. If total_matched > products returned and you don't see the named product, refine the keyword before concluding it doesn't exist. LANGUAGE: the catalog is in ENGLISH — category MUST be an English keyword. Translate the seller's word from any language to the English catalog term (a generic "shirt/tee" word → "t-shirt", an outerwear word → "hoodie"/"jacket", a "pants/trousers" word → "pants"). If the product type is generic or unclear, OMIT category and filter by max_base_cost only (then summarize the cheapest options) — never pass a non-English word as category.`,
     `2. compare_factories(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use after a specific product is chosen, to compare factories or for margin.`,
     `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price, in_stock) for a product. Use for specific color/size or before ordering.`,
-    `4. create_order(shipping, items, sandbox?) → place a fulfillment order. Default sandbox=true (test). ONLY after the seller confirms SKU + quantity + shipping address.`,
+    `4. create_order(shipping, item, sandbox?) → place a single-item fulfillment order. See ORDER FLOW below.`,
     `5. search_history(query) → search the FULL conversation history (BM25). Only the last few turns are in your context; if the seller refers to something said earlier that you don't see, call search_history to retrieve it instead of guessing or saying you forgot.`,
     `6. get_shipping(short_code, partner_id, country?) → shipping fee + time per country for ONE factory (partner_id from compare_factories). Use to answer "which factory ships cheapest/fastest to country X" and to compute margin INCLUDING shipping.`,
+    `7. Order flow tools: check_auth, require_seller_key, get_balance, charge_order, list_orders, get_order, get_order_tracking, cancel_order, delete_order. See ORDER FLOW below.`,
+    ``,
+    `ORDER FLOW (placing & paying for an order — follow EXACTLY, never skip a gate):`,
+    `- GATE 0 (auth): BEFORE collecting any order info, call check_auth. If not logged in, STOP and ask the seller to log in (a login prompt appears automatically). Do not collect SKU/design/address from a guest.`,
+    `- STEP A (SKU): use search_products → get_product_variants to settle the exact catalog_sku + quantity; never order an out-of-stock SKU.`,
+    `- STEP B (design): call get_decorations to tell the seller the artwork/file requirements, then have them attach a design image. You need a public design_url_front (design_url_back only if printing the back) before a real order.`,
+    `- STEP C (address): collect shipping name/address1/city/state/zip/country (2-letter state for US, 2-letter country code). Re-ask for any missing/invalid field; never invent address data.`,
+    `- STEP D (DRAFT): call create_order with sandbox=true to preview cost. Show the seller base cost + shipping fee + total. This is NOT a real order.`,
+    `- GATE KEY: before a real order, call require_seller_key. If no key, STOP and ask the seller to add their BurgerPrints API key in settings (a settings prompt appears automatically).`,
+    `- GATE 1 (create real): ONLY after the seller explicitly confirms, call create_order with sandbox=false → you get an order_id. The order is created but NOT yet paid.`,
+    `- GATE 2 (charge): SEPARATELY, after the seller explicitly confirms payment, call get_balance; if funds are sufficient call charge_order(order_id). If insufficient, do NOT charge — tell the seller to top up. NEVER chain create→charge automatically.`,
+    `- AFTER a real order is created: call render_buttons with a "link" button "View order on dashboard" → https://dash.burgerprints.com/admin/order/<order_id> (use the returned order_id).`,
+    `- AFTER: use list_orders for "my orders / order history", get_order / get_order_tracking for one order's status; cancel_order / delete_order only after explicit confirmation.`,
+    ``,
+    `BUTTONS (UX): render_buttons is a general helper — use it whenever tappable options help, not only for orders: yes/no confirmations (e.g. "Place the real order" / "Not yet"), a few choices (markets, sizes, factories), or a useful external link. action "message" sends the label back as the seller's reply (a quick reply); action "link" opens a URL. Keep to 2-4 short buttons; don't overuse them on every message.`,
+    `- If any order tool returns that login or an API key is required, STOP and ask the seller to do that step (the popup is shown for them) — do not retry blindly or expose tool/field names.`,
     ``,
     `SHORT_CODE RULE (critical): compare_factories / get_product_variants / get_shipping need a short_code. You MUST obtain short_code from a search_products result — NEVER invent or guess it (e.g. do not assume "EU3001" or "USBC3001"). If the seller names a product but you don't have its exact short_code, call search_products FIRST to resolve it, then use the returned short_code. A wrong short_code returns a 400 error.`,
     `KNOWLEDGE FIRST: At the START of every turn, call retrieve_knowledge — but pass a SELF-CONTAINED query that resolves the conversation context, NOT the seller's raw words. If the latest message is a short follow-up (just a country name, "thì sao?", "cái kia", a number...), expand it using the active topic so the query stands on its own — e.g. while discussing VAT and the seller types only "Germany", query "VAT tax rate for Germany", not "Germany". If it returns a matching guide, follow that guide's approach (its steps, what to check, what to ask back). If it returns nothing relevant, just answer normally. Never mention guides, knowledge, or tools to the seller — treat any guide as your own expertise.`,
@@ -723,7 +1111,47 @@ export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   },
   {
     name: 'create_order',
-    desc: 'Create a fulfillment order (shipping + items). Default sandbox=true (test order). Only call after the seller confirms SKU + quantity + address.',
+    desc: "Create a single-item fulfillment order. Default sandbox=true (draft to preview cost). sandbox=false (real order) uses the seller's own API key and requires explicit confirmation.",
+  },
+  {
+    name: 'check_auth',
+    desc: 'Check whether the seller is logged in (called before collecting order info). If not, the FE shows a login prompt and the agent stops.',
+  },
+  {
+    name: 'require_seller_key',
+    desc: 'Check whether the seller configured their own BurgerPrints API key (called at the draft→real-order boundary). If not, the FE shows a settings prompt.',
+  },
+  {
+    name: 'get_balance',
+    desc: "Read the seller's BurgerPrints wallet balance (their own key). Used before charging.",
+  },
+  {
+    name: 'charge_order',
+    desc: "Charge/pay a created order from the seller's wallet (gate 2). Only after explicit payment confirmation; never auto-chained after create_order.",
+  },
+  {
+    name: 'list_orders',
+    desc: 'List the seller\'s orders (paginated, newest first) — for "show my orders / order history". Uses their own key.',
+  },
+  {
+    name: 'get_order',
+    desc: "Get status/details of one of the seller's orders (their own key).",
+  },
+  {
+    name: 'get_order_tracking',
+    desc: 'Get tracking info for one of the seller\'s orders; says "not available yet" when there is none.',
+  },
+  {
+    name: 'cancel_order',
+    desc: "Cancel one of the seller's orders. Only after explicit confirmation.",
+  },
+  {
+    name: 'delete_order',
+    desc: "Delete one of the seller's orders. Only after explicit confirmation.",
+  },
+  {
+    name: 'render_buttons',
+    desc: 'Render clickable buttons in chat (quick replies / links). Used e.g. after creating an order to show an "Open on dashboard" link button.',
   },
   {
     name: 'search_history',
@@ -731,7 +1159,7 @@ export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   },
   {
     name: 'retrieve_knowledge',
-    desc: 'Look up internal how-to guides relevant to the seller\'s request (called every turn). If a guide matches, the agent follows it; otherwise it answers normally.',
+    desc: "Look up internal how-to guides relevant to the seller's request (called every turn). If a guide matches, the agent follows it; otherwise it answers normally.",
   },
   {
     name: 'fetch_url',
