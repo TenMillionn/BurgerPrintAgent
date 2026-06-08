@@ -1,103 +1,128 @@
-# BurgerPrintsAgent — POD Catalog Assistant
+# BurgerPrintsAgent — POD Fulfillment Assistant
 
-> Từ hàng trăm xưởng đến một SKU hoàn hảo — để AI agent làm phần nặng nhọc.
+> From hundreds of factories to one perfect SKU — and from "I want to order this" to a paid order — let an AI agent do the heavy lifting.
 
-AI chatbot hội thoại giúp **sellers POD** trên BurgerPrints tìm kiếm, so sánh và chọn sản phẩm
-fulfillment (sản phẩm × xưởng × SKU × giá × ship) qua **ngôn ngữ tự nhiên (VN/EN)**, dùng
-**BurgerPrints API v2.0** làm nguồn dữ liệu thật. Đề tài **BP1** (nhà tài trợ: BurgerPrints).
+A conversational AI assistant that helps **print-on-demand (POD) sellers** on BurgerPrints **search, compare, choose, and order** fulfillment products (product × factory × SKU × price × shipping) in **natural language (VN/EN)**, using the **BurgerPrints API v2** as the real data source. Topic **BP1** (sponsor: BurgerPrints).
 
-## ✨ Tính năng (dự kiến)
+🔗 **Live demo:** https://burgerprint.vocatee.com/
 
-> ⚠️ **Trạng thái: đang phát triển.** Đây là phạm vi/mục tiêu của sản phẩm. Hiện mới
-> hoàn thiện phần **nền tảng backend** (xem [Roadmap](#️-roadmap)); các tính năng dưới đây
-> là định hướng dự kiến, chưa hoàn thiện toàn bộ.
+## ✨ Features
 
-- 💬 **Hội thoại nhiều lượt**, giữ ngữ cảnh — không phải form filter tĩnh
-- ⚡ **Streaming real-time qua SSE** — câu trả lời hiện dần token-by-token
-- 🤖 **Agent có tool-calling** — tự tra cứu catalog BurgerPrints khi cần (không bịa dữ liệu)
-- 🌐 **Song ngữ VN/EN** — trả lời theo ngôn ngữ của câu hỏi
-- 🔐 **Xác thực JWT + Google OAuth** — bảo mật endpoint, định danh người dùng
-- 🧠 **Lưu trữ kép (MongoDB + Redis)** — lưu lịch sử dài hạn (MongoDB) + cache phiên (Redis)
-- ⚙️ **Cấu hình từ env + validation fail-fast** — không hardcode secret
+- 💬 **Multi-turn chat** with context — not a static filter form.
+- ⚡ **Real-time SSE streaming** — answers appear token-by-token, with a live tool timeline.
+- 🤖 **Tool-calling agent** — looks up the real BurgerPrints catalog on demand; never fabricates data.
+- 🌐 **Bilingual VN/EN** — replies in the language of the question.
+- 🔎 **Catalog intelligence** — search products, compare factories, list SKUs/colors/sizes, size charts, print options, shipping fees, and precise margin math.
+- 🧾 **End-to-end ordering** — place and pay for a single-item order through chat, on the seller's own BurgerPrints account, behind **two explicit confirmation gates** (create → charge):
+  - Create an **unpaid order** that returns the live **base + shipping + total** quote, then **charge** it separately.
+  - Look up / list / track / cancel / delete orders.
+- 🎨 **Validated print-file pipeline** — an in-chat **upload card** collects the design; uploads land on **Cloudflare R2**; the agent **validates resolution** against the factory list and **auto resize/crops** invalid files (`sharp`, cover + centre crop) to a valid size.
+- 🔐 **Per-seller BurgerPrints API key** — stored **AES-256-GCM encrypted**; real orders run on the seller's account/wallet. Auth + key gates are surfaced to the UI (login / settings prompts) and enforced server-side.
+- 🧠 **Knowledge base** — admins upload Markdown playbooks; the agent retrieves the most relevant guide every turn (BM25/MiniSearch) and follows it.
+- 📚 **Conversation memory** — long-term history (MongoDB) + session/cache (Redis) + BM25 history search.
+- 🔑 **JWT + Google OAuth** auth; **env-driven config** with fail-fast Joi validation (no hardcoded secrets).
 
-## 🏗️ Kiến trúc
+## 🏗️ Architecture
 
 ```
-                    ┌──────────────────────── backend/ (NestJS) ────────────────────────┐
-  Client ──SSE──►   │  conversation (@Sse)  ──►  AgentRuntime (port)                     │
-  (web/CLI/...)     │  auth (JWT/OAuth)               │                                  │
-                    │        ▼                        ▼                                  │
-                    │   session (Redis)         pi-agent-core                            │
-                    │   MongoDB (history)       (in-process, ESM, push→pull)             │
-                    │        │                        │                                  │
-                    │        ▼                        ▼ tool: burgerprints_search        │
-                    │     Redis + MongoDB       BurgerPrints API v2.0 (+ cache Redis)    │
-                    └────────────────────────────────────────────────────────────────────┘
+        ┌──────────────── frontend/ (React + Vite, SSE client) ────────────────┐
+        │   chat UI · upload card · buttons · API-key & QR modals (Tailwind)    │
+        └───────────────────────────────┬──────────────────────────────────────┘
+                                         │  /api  (nginx proxy, SSE)
+        ┌────────────────────────── backend/ (NestJS) ─────────────────────────┐
+        │  conversation (@Sse) ──► AgentRuntime (port) ──► pi-agent-core (ESM)  │
+        │  auth (JWT/OAuth)              │  tools                               │
+        │  uploads/design (R2 + sharp)   ▼                                      │
+        │  users (encrypted key)   BurgerPrints API v2  ·  Knowledge (MiniSearch)│
+        │  session (Redis) · MongoDB (history, users, design assets)            │
+        └───────────────────────────────────────────────────────────────────────┘
 ```
 
-- Mỗi tích hợp ngoài nằm sau **module + port** riêng → cô lập, dễ test (override port bằng double trong test).
-- Runtime agent: [`@earendil-works/pi-agent-core`](https://www.npmjs.com/package/@earendil-works/pi-agent-core) (bộ "Pi" toolkit), tích hợp in-process sau port `AgentRuntime`.
+- Every external integration sits behind its **own module + port** → isolated and testable (the `AgentRuntime` port is overridden with a fake in tests).
+- Agent runtime: [`@earendil-works/pi-agent-core`](https://www.npmjs.com/package/@earendil-works/pi-agent-core) (the "Pi" toolkit), integrated in-process behind the `AgentRuntime` port. Transient LLM errors (429/5xx, upstream timeouts) are retried via `agent.continue()`.
 
-## 🚀 Cài đặt ≤ 10 phút
+## 🧰 Agent tools
+
+| Group | Tools |
+|---|---|
+| Catalog | `search_products`, `compare_factories`, `get_product_variants`, `get_product_detail`, `get_product_colors`, `get_decorations`, `get_related_products`, `get_size_chart`, `get_shipping`, `calculate_margin` |
+| Orders | `create_order` (unpaid quote), `charge_order`, `get_balance`, `list_orders`, `get_order`, `get_order_tracking`, `cancel_order`, `delete_order` |
+| Design files | `request_design_upload`, `validate_design`, `process_design`, `list_design_assets` |
+| Gates & UX | `check_auth`, `require_seller_key`, `render_buttons` |
+| Assist | `retrieve_knowledge`, `search_history`, `fetch_url` |
+
+## 🚀 Quick start (≤ 10 min)
+
+**Backend** (Docker brings up app + Redis + MongoDB):
 
 ```bash
 cd backend
 cp .env.example .env
-# Điền BURGERPRINTS_API_KEY + (ANTHROPIC_API_KEY hoặc OPENAI_API_KEY) + JWT_SECRET
+# Fill: BURGERPRINTS_API_BASE_URL, BURGERPRINTS_API_KEY, JWT_SECRET,
+#       LLM_PROVIDER + (OPENAI_API_KEY | ANTHROPIC_API_KEY),
+#       R2_* (Cloudflare R2), ENCRYPTION_KEY
 docker compose up --build
+curl http://localhost:3000/health
 ```
 
-Thử ngay:
+**Frontend** (Vite dev server, proxies `/api` → backend):
 
 ```bash
-curl http://localhost:3000/health
-SID=$(curl -s -XPOST http://localhost:3000/conversations | jq -r .sessionId)
-curl -N "http://localhost:3000/conversations/$SID/stream?message=Tim%20T-shirt%20cho%20thi%20truong%20My"
+cd frontend
+npm install
+npm run dev   # http://localhost:5173
 ```
 
-👉 Chi tiết cài đặt (Docker / local), bảng biến môi trường, lệnh dev: [`backend/README.md`](backend/README.md).
+See [`backend/README.md`](backend/README.md) for the full env table and dev commands.
 
-## 📡 API
+## 📡 Selected API
 
-| Method | Path | Mô tả | Yêu cầu |
-|--------|------|------|---------|
-| POST | `/auth/login` | Đăng nhập tài khoản Local | Public |
-| POST | `/conversations` | Tạo phiên → `{ sessionId }` | JWT |
-| GET | `/conversations/:id/stream?message=...` | Hội thoại **SSE** (`token`/`tool`/`error`/`done`) | JWT |
-| POST | `/conversations/:id/messages` | Fallback non-stream → `{ reply }` | JWT |
-| GET | `/health` | Readiness (ping Redis + MongoDB) | Public |
+| Method | Path | Purpose | Auth |
+|--------|------|---------|------|
+| GET | `/conversations/:id/stream?message=...` | **SSE** chat (`token`/`tool`/`action`/`buttons`/`upload_card`/`done`) | JWT |
+| POST | `/conversations` | Create a conversation → `{ sessionId }` | JWT |
+| POST | `/uploads/design` | Upload a print file → R2 + `DesignAsset` | JWT |
+| GET | `/design/assets?conversationId=` | List a conversation's design assets | JWT |
+| PUT/GET/DELETE | `/me/burgerprints-key` | Manage the seller's encrypted API key (status shows only `{configured,last4}`) | JWT |
+| POST | `/uploads` | Generic image upload → public URL | JWT |
+| POST | `/auth/login`, `/auth/register`, `/auth/google` | Auth | Public |
+| GET | `/health` | Readiness (Redis + MongoDB) | Public |
 
-Contract đầy đủ: [`specs/001-nestjs-backend-foundation/contracts/`](specs/001-nestjs-backend-foundation/contracts/).
+## 🧱 Tech stack
 
-## 🧰 Tech stack
+**Backend:** NestJS 10 (TypeScript, Node 20) · SSE · `@earendil-works/pi-agent-core` + `pi-ai` · MongoDB 7 (Mongoose) · Redis 7 (ioredis) · `@aws-sdk/client-s3` (Cloudflare R2) · `sharp` (image resize/crop) · Passport (JWT + Google OAuth2) · Joi · Docker Compose · Jest.
 
-**NestJS 10** (TypeScript, Node 20) · **SSE** streaming · **@earendil-works/pi-agent-core** (agent runtime)
-· **Redis 7** (session + cache) · **MongoDB 7** (users, auth, history) · **joi** (env validation)
-· **Passport (JWT + OAuth2)** · **Docker Compose** · **Jest** (10 unit + 5 e2e)
+**Frontend:** React 18 + Vite · Tailwind (utility-first, CSS-var theming) · `react-markdown` + KaTeX · `qrcode.react` · framer-motion · lucide-react. Also ships as a Chrome side-panel extension build.
 
-## 📂 Cấu trúc
+## 📂 Structure
 
 ```
-backend/                  # NestJS backend (xem backend/README.md)
-  src/{conversation,agent,session,burgerprints,redis,config,health,common}
+backend/   # NestJS API
+  src/{conversation,agent,session,burgerprints,design,uploads,users,knowledge,redis,config,health,common}
   test/{unit,e2e}
-specs/001-nestjs-backend-foundation/   # spec-kit: spec, plan, research, data-model, contracts, tasks
-docs/                     # detai.md (đề bài) + api-specs.md (BurgerPrints API v2) + Requirement.md (yêu cầu) + UserFlow-UseCases.md (User Flow & Use Cases) + TestCases.md (kịch bản kiểm thử) + Bonus-ImageAnalysisUseCase.md (nhận diện ảnh thiết kế)
+frontend/  # React + Vite chat UI (+ Chrome extension build)
+  src/{components,locales}
+specs/     # spec-kit artifacts per feature (spec, plan, research, data-model, contracts, tasks)
+docs/      # api-specs.md (BurgerPrints API v2), requirements, use cases, knowledge-samples/
 ```
 
-Dự án phát triển theo [spec-kit](https://github.com/github/spec-kit) (specify → plan → tasks → implement).
+Built spec-first with [spec-kit](https://github.com/github/spec-kit) (specify → plan → tasks → implement). Feature specs:
 
-## 🔐 Bảo mật
+- `001-nestjs-backend-foundation` — SSE chat skeleton + `AgentRuntime` port + Redis session.
+- `002-burgerprint-api-sync` — catalog sync + search (MiniSearch / full-text).
+- `003-auth-persistence` — JWT + Google OAuth + MongoDB history.
+- `004-knowledge-base` — admin-managed Markdown playbooks + `retrieve_knowledge`.
+- `005-create-order` — ordering, per-seller encrypted key, gates, R2 upload.
+- `006-design-file-pipeline` — upload card, resolution validation, auto resize/crop.
 
-Mọi credential nạp từ env; **không hardcode**. `.env` đã gitignore — chỉ commit `.env.example` placeholder.
+## 🔐 Security
 
-## 🗺️ Roadmap
+All credentials come from env — **never hardcoded**. `.env` is gitignored (only `.env.example` placeholders are committed). Seller API keys are AES-256-GCM encrypted at rest and never logged or returned in plaintext. Both the auth and the per-seller-key gates are enforced server-side regardless of the UI.
 
-- [x] Nền tảng backend (foundation): khung hội thoại SSE, port `AgentRuntime`, Redis session, BurgerPrints client
-- [x] Xác thực (Auth): JWT, Google OAuth, MongoDB để lưu user và dữ liệu hội thoại (US4, US2)
-- [ ] Hoàn thiện luồng agent tra cứu + so sánh catalog end-to-end
-- [ ] System prompt tư vấn fulfillment chi tiết (so sánh giá/xưởng/margin)
-- [ ] Tạo đơn hàng tự động (`POST /v2/order` + `sandbox`) — bonus đề bài
-- [ ] Giao diện cho seller (web/CLI/Telegram)
+## ☁️ Deployment
 
-> Tiến độ hiện tại: **nền tảng backend + auth + storage** (~50%). Các hạng mục còn lại đang triển khai.
+Self-hosted on a VPS: `docker compose up -d --build` (app + Redis + MongoDB) behind nginx, which serves the built `frontend/dist` and proxies `/api` → the backend (SSE buffering off). The `main` branch is what runs in production. R2 and encryption secrets live only in the server's `backend/.env`.
+
+## ✅ Status
+
+Live and deployed: catalog Q&A + margin, knowledge base, end-to-end ordering (create → quote → charge), and the validated design-file pipeline. Roadmap: multi-item orders, webhook-driven order status, and optional image-vision analysis of designs.
