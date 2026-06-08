@@ -4,8 +4,6 @@
 
 A conversational AI assistant that helps **print-on-demand (POD) sellers** on BurgerPrints **search, compare, choose, and order** fulfillment products (product × factory × SKU × price × shipping) in **natural language (VN/EN)**, using the **BurgerPrints API v2** as the real data source. Topic **BP1** (sponsor: BurgerPrints).
 
-🔗 **Live demo:** https://burgerprint.vocatee.com/
-
 ## ✨ Features
 
 - 💬 **Multi-turn chat** with context — not a static filter form.
